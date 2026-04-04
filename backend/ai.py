@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+AI_MODEL = os.environ.get("AI_MODEL", "openai/gpt-oss-120b")
 
 class ChatMessage(BaseModel):
     role: str
@@ -96,7 +97,7 @@ async def call_openrouter(messages: list[ChatMessage], board_context: str = "", 
     }
 
     payload = {
-        "model": "openai/gpt-4o-mini", # Testing a faster / high reliability model for structured outputs
+        "model": AI_MODEL,
         "messages": [system_context] + [{"role": m.role, "content": m.content} for m in messages],
         "response_format": response_format,
         "temperature": 0.1,

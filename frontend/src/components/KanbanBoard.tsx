@@ -18,6 +18,7 @@ import { moveCard, type BoardData, type Column } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
   const [board, setBoard] = useState<BoardData | null>(null);
+  const [fetchError, setFetchError] = useState(false);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -32,9 +33,13 @@ export const KanbanBoard = () => {
       if (response.ok) {
         const data = await response.json();
         setBoard(data);
+        setFetchError(false);
+      } else {
+        setFetchError(true);
       }
     } catch (error) {
       console.error("Failed to fetch board data:", error);
+      setFetchError(true);
     }
   };
 
@@ -156,6 +161,20 @@ export const KanbanBoard = () => {
       };
     });
   };
+
+  if (fetchError) {
+    return (
+      <div className="flex flex-col justify-center items-center min-h-screen gap-4 text-[var(--gray-text)]">
+        <p>Could not load the board. Is the server running?</p>
+        <button
+          onClick={fetchBoard}
+          className="rounded-full bg-[var(--primary-blue)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 transition"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   if (!board) {
     return (

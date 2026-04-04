@@ -1,5 +1,6 @@
 # docker-compose.yml for MVP
-version: '3.8'
+# Note: runs with --reload and a backend volume mount for hot-reloading during development.
+# The built Docker image is production-ready; this compose file is for local dev only.
 
 services:
   app:

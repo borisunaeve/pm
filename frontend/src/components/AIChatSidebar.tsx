@@ -60,8 +60,8 @@ export const AIChatSidebar = ({ onRefreshBoard }: AIChatSidebarProps) => {
                 { role: "assistant", content: data.message || "Done." },
             ]);
 
-            // If the AI took an action (CREATE_CARD, MOVE_CARD, etc.), we need to refresh the board.
-            if (data.action && data.action.action !== "NONE") {
+            // If the AI took any board actions, refresh so the changes appear.
+            if (data.actions?.length > 0) {
                 onRefreshBoard();
             }
 

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -21,6 +22,12 @@ export const KanbanColumn = ({
   onDeleteCard,
 }: KanbanColumnProps) => {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const [localTitle, setLocalTitle] = useState(column.title);
+
+  // Keep local title in sync if the parent updates (e.g. AI renames the column)
+  useEffect(() => {
+    setLocalTitle(column.title);
+  }, [column.title]);
 
   return (
     <section
@@ -40,8 +47,15 @@ export const KanbanColumn = ({
             </span>
           </div>
           <input
-            value={column.title}
-            onChange={(event) => onRename(column.id, event.target.value)}
+            value={localTitle}
+            onChange={(e) => setLocalTitle(e.target.value)}
+            onBlur={() => {
+              if (localTitle.trim() && localTitle !== column.title) {
+                onRename(column.id, localTitle.trim());
+              } else {
+                setLocalTitle(column.title);
+              }
+            }}
             className="mt-3 w-full bg-transparent font-display text-lg font-semibold text-[var(--navy-dark)] outline-none"
             aria-label="Column title"
           />

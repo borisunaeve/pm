@@ -176,3 +176,8 @@ cython_debug/
 
 # env files (can opt-in for committing if needed)
 .env*
+
+# Project-specific
+data/
+frontend/out/
+backend/node_modules/

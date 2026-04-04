@@ -62,10 +62,10 @@ uv pip install -r requirements.txt
 uv run uvicorn backend.main:app --reload --port 8000
 ```
 
-### Run backend tests
+### Run backend smoke test (live OpenRouter call, requires OPENROUTER_API_KEY)
 ```bash
 cd backend
-uv run pytest test_ai.py
+python smoke_test_ai.py
 ```
 
 ## Environment

@@ -1,7 +1,10 @@
 import sqlite3
 import os
 
-DB_FILE = os.environ.get("DB_FILE", "/app/data/pm.db")
+DB_FILE = os.environ.get(
+    "DB_FILE",
+    os.path.join(os.path.dirname(__file__), "..", "data", "pm.db"),
+)
 
 def get_db_connection():
     # Helper to enforce WAL mode and row factory
