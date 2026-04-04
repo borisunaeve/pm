@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,10 +13,11 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { AIChatSidebar } from "@/components/AIChatSidebar";
+import { moveCard, type BoardData, type Column } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+  const [board, setBoard] = useState<BoardData | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -25,53 +26,120 @@ export const KanbanBoard = () => {
     })
   );
 
-  const cardsById = useMemo(() => board.cards, [board.cards]);
+  const fetchBoard = async () => {
+    try {
+      const response = await fetch("/api/board");
+      if (response.ok) {
+        const data = await response.json();
+        setBoard(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch board data:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchBoard();
+  }, []);
+
+  const cardsById = useMemo(() => board?.cards || {}, [board?.cards]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCardId(null);
 
-    if (!over || active.id === over.id) {
+    if (!over || active.id === over.id || !board) {
       return;
     }
 
-    setBoard((prev) => ({
-      ...prev,
-      columns: moveCard(prev.columns, active.id as string, over.id as string),
-    }));
+    const newColumns = moveCard(board.columns, active.id as string, over.id as string);
+
+    // Optimistic UI update
+    setBoard((prev) => prev ? { ...prev, columns: newColumns } : prev);
+
+    // Find new column and order to sync with backend
+    const activeIdStr = active.id as string;
+    let newColId = "";
+    let newOrder = 0;
+
+    newColumns.forEach((col) => {
+      const idx = col.cardIds.indexOf(activeIdStr);
+      if (idx !== -1) {
+        newColId = col.id;
+        newOrder = idx;
+      }
+    });
+
+    try {
+      await fetch(`/api/cards/${activeIdStr}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          column_id: newColId,
+          order: newOrder,
+        }),
+      });
+    } catch (e) {
+      console.error("Failed to move card", e);
+      // In a real app we'd revert the optimistic update here on fail
+    }
   };
 
-  const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
+  const handleRenameColumn = async (columnId: string, title: string) => {
+    setBoard((prev) => prev ? {
       ...prev,
       columns: prev.columns.map((column) =>
         column.id === columnId ? { ...column, title } : column
       ),
-    }));
+    } : null);
+
+    await fetch(`/api/columns/${columnId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
   };
 
-  const handleAddCard = (columnId: string, title: string, details: string) => {
-    const id = createId("card");
-    setBoard((prev) => ({
-      ...prev,
-      cards: {
-        ...prev.cards,
-        [id]: { id, title, details: details || "No details yet." },
-      },
-      columns: prev.columns.map((column) =>
-        column.id === columnId
-          ? { ...column, cardIds: [...column.cardIds, id] }
-          : column
-      ),
-    }));
+  const handleAddCard = async (columnId: string, title: string, details: string) => {
+    const response = await fetch("/api/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        details: details || "No details yet.",
+        column_id: columnId,
+      }),
+    });
+
+    if (response.ok) {
+      const newCard = await response.json();
+      setBoard((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          cards: {
+            ...prev.cards,
+            [newCard.id]: newCard,
+          },
+          columns: prev.columns.map((column) =>
+            column.id === columnId
+              ? { ...column, cardIds: [...column.cardIds, newCard.id] }
+              : column
+          ),
+        };
+      });
+    }
   };
 
-  const handleDeleteCard = (columnId: string, cardId: string) => {
+  const handleDeleteCard = async (columnId: string, cardId: string) => {
+    await fetch(`/api/cards/${cardId}`, { method: "DELETE" });
+
     setBoard((prev) => {
+      if (!prev) return prev;
       return {
         ...prev,
         cards: Object.fromEntries(
@@ -80,14 +148,22 @@ export const KanbanBoard = () => {
         columns: prev.columns.map((column) =>
           column.id === columnId
             ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
-              }
+              ...column,
+              cardIds: column.cardIds.filter((id) => id !== cardId),
+            }
             : column
         ),
       };
     });
   };
+
+  if (!board) {
+    return (
+      <div className="flex justify-center items-center min-h-screen text-[var(--gray-text)]">
+        Loading Kanban Board...
+      </div>
+    );
+  }
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
@@ -121,7 +197,7 @@ export const KanbanBoard = () => {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-            {board.columns.map((column) => (
+            {board.columns.map((column: Column) => (
               <div
                 key={column.id}
                 className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
@@ -133,6 +209,8 @@ export const KanbanBoard = () => {
           </div>
         </header>
 
+        <AIChatSidebar onRefreshBoard={fetchBoard} />
+
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -140,7 +218,7 @@ export const KanbanBoard = () => {
           onDragEnd={handleDragEnd}
         >
           <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
+            {board.columns.map((column: Column) => (
               <KanbanColumn
                 key={column.id}
                 column={column}

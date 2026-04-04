@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  // Set auth before page load so the auth guard doesn't redirect to /login
+  await page.addInitScript(() => {
+    localStorage.setItem("pm_auth", "true");
+  });
+});
+
 test("loads the kanban board", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();

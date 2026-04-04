@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(python test_ai.py)",
+      "Bash(docker-compose down:*)"
+    ]
+  }
+}
