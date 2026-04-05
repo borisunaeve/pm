@@ -134,13 +134,13 @@ def _migrate(conn):
     if "password_hash" not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
     if "created_at" not in user_cols:
-        cursor.execute("ALTER TABLE users ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
+        cursor.execute("ALTER TABLE users ADD COLUMN created_at TEXT DEFAULT ''")
 
     # boards
     cursor.execute("PRAGMA table_info(boards)")
     board_cols = {row["name"] for row in cursor.fetchall()}
     if "created_at" not in board_cols:
-        cursor.execute("ALTER TABLE boards ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
+        cursor.execute("ALTER TABLE boards ADD COLUMN created_at TEXT DEFAULT ''")
 
     # columns
     cursor.execute("PRAGMA table_info(columns)")
@@ -165,8 +165,16 @@ def _migrate(conn):
 
 def seed_data(conn):
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = 'user'")
-    if cursor.fetchone():
+    cursor.execute("SELECT id, password_hash FROM users WHERE username = 'user'")
+    row = cursor.fetchone()
+    if row:
+        # Repair empty password_hash left by old migration
+        if not row["password_hash"]:
+            cursor.execute(
+                "UPDATE users SET password_hash=? WHERE username='user'",
+                (hash_password("password"),),
+            )
+            conn.commit()
         return
 
     cursor.execute(
