@@ -40,6 +40,15 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
   const [editing, setEditing] = useState(false);
+  const [checklistCounts, setChecklistCounts] = useState({
+    done: card.checklist_done ?? 0,
+    total: card.checklist_total ?? 0,
+  });
+
+  // Keep in sync if the board re-fetches and card prop updates
+  useEffect(() => {
+    setChecklistCounts({ done: card.checklist_done ?? 0, total: card.checklist_total ?? 0 });
+  }, [card.checklist_done, card.checklist_total]);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -49,7 +58,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
   const labelList = card.labels ? card.labels.split(",").map((l) => l.trim()).filter(Boolean) : [];
   const priority = card.priority || "medium";
   const dateStatus = dueDateStatus(card.due_date);
-  const hasChecklist = (card.checklist_total ?? 0) > 0;
+  const hasChecklist = checklistCounts.total > 0;
 
   return (
     <>
@@ -90,16 +99,16 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
                   <div
                     className={clsx(
                       "h-full rounded-full transition-all",
-                      card.checklist_done === card.checklist_total ? "bg-green-500" : "bg-[var(--primary-blue)]"
+                      checklistCounts.done === checklistCounts.total ? "bg-green-500" : "bg-[var(--primary-blue)]"
                     )}
-                    style={{ width: `${Math.round(((card.checklist_done ?? 0) / (card.checklist_total ?? 1)) * 100)}%` }}
+                    style={{ width: `${Math.round((checklistCounts.done / (checklistCounts.total || 1)) * 100)}%` }}
                   />
                 </div>
                 <span className={clsx(
                   "text-[10px] font-semibold tabular-nums",
-                  card.checklist_done === card.checklist_total ? "text-green-600" : "text-[var(--gray-text)]"
+                  checklistCounts.done === checklistCounts.total ? "text-green-600" : "text-[var(--gray-text)]"
                 )}>
-                  {card.checklist_done}/{card.checklist_total}
+                  {checklistCounts.done}/{checklistCounts.total}
                 </span>
               </div>
             )}
@@ -173,6 +182,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
         <CardEditModal
           card={card}
           boardId={boardId}
+          onChecklistChange={(done, total) => setChecklistCounts({ done, total })}
           onSave={async (updates) => {
             await onUpdate(updates);
             setEditing(false);
@@ -192,11 +202,12 @@ type CardEditModalProps = {
   boardId: string;
   onSave: (updates: Partial<Card>) => Promise<void>;
   onClose: () => void;
+  onChecklistChange: (done: number, total: number) => void;
 };
 
 type ModalTab = "details" | "checklist" | "comments";
 
-const CardEditModal = ({ card, boardId, onSave, onClose }: CardEditModalProps) => {
+const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: CardEditModalProps) => {
   const [tab, setTab] = useState<ModalTab>("details");
   const [title, setTitle] = useState(card.title);
   const [details, setDetails] = useState(card.details || "");
@@ -358,7 +369,14 @@ const CardEditModal = ({ card, boardId, onSave, onClose }: CardEditModalProps) =
           )}
 
           {tab === "checklist" && (
-            <ChecklistTab cardId={card.id} onClose={onClose} onCountChange={setChecklistCount} />
+            <ChecklistTab
+              cardId={card.id}
+              onClose={onClose}
+              onCountChange={(counts) => {
+                setChecklistCount(counts);
+                onChecklistChange(counts.done, counts.total);
+              }}
+            />
           )}
 
           {tab === "comments" && (
