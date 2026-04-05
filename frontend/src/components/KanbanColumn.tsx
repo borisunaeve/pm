@@ -15,7 +15,7 @@ type KanbanColumnProps = {
   boardId: string;
   onRename: (columnId: string, title: string) => void;
   onSetWipLimit: (columnId: string, title: string, wip_limit: number | null) => void;
-  onAddCard: (columnId: string, title: string, details: string) => void;
+  onAddCard: (columnId: string, title: string, details: string, priority: string, due_date: string, labels: string) => void;
   onDeleteCard: (columnId: string, cardId: string) => void;
   onDeleteColumn: (columnId: string) => void;
   onUpdateCard: (
@@ -203,7 +203,7 @@ export const KanbanColumn = ({
         )}
       </div>
       <NewCardForm
-        onAdd={(title, details) => onAddCard(column.id, title, details)}
+        onAdd={(data) => onAddCard(column.id, data.title, data.details, data.priority, data.due_date, data.labels)}
       />
     </section>
   );

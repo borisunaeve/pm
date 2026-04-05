@@ -370,11 +370,14 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     );
   };
 
-  const handleAddCard = async (columnId: string, title: string, details: string) => {
+  const handleAddCard = async (columnId: string, title: string, details: string, priority = "medium", due_date = "", labels = "") => {
     const newCard = await api.createCard({
       title,
       details: details || "",
       column_id: columnId,
+      priority,
+      due_date: due_date || undefined,
+      labels: labels || "",
     });
     setBoard((prev) => {
       if (!prev) return prev;

@@ -61,7 +61,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
           "transition-all duration-150",
           dateStatus === "overdue" && "border-red-300 bg-red-50/40",
           dateStatus === "due-soon" && "border-amber-300",
-          dateStatus !== "overdue" && dateStatus !== "due-soon" && "border-transparent",
+          dateStatus !== "overdue" && dateStatus !== "due-soon" && "border-[var(--stroke)]",
           isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]"
         )}
         {...attributes}
