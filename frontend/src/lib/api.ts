@@ -30,12 +30,51 @@ export type Card = {
   priority: "low" | "medium" | "high";
   due_date: string | null | undefined;
   labels: string;
+  checklist_total?: number;
+  checklist_done?: number;
+  assignee_id?: string | null;
+  assignee_username?: string | null;
+};
+
+export type ActivityEntry = {
+  id: number;
+  board_id: string;
+  user_id: string;
+  username: string;
+  action: string;
+  entity_type: string;
+  entity_title: string | null;
+  created_at: string;
 };
 
 export type Column = {
   id: string;
   title: string;
   cardIds: string[];
+  wip_limit?: number | null;
+};
+
+export type ChecklistItem = {
+  id: string;
+  title: string;
+  checked: boolean;
+  order: number;
+};
+
+export type Comment = {
+  id: string;
+  card_id: string;
+  user_id: string;
+  username: string;
+  content: string;
+  created_at: string;
+};
+
+export type BoardMember = {
+  user_id: string;
+  username: string;
+  role: string;
+  added_at: string;
 };
 
 export type BoardData = {
@@ -147,11 +186,14 @@ export const createColumn = (boardId: string, title: string) =>
     body: JSON.stringify({ title, board_id: boardId }),
   });
 
-export const updateColumn = (columnId: string, title: string) =>
-  apiFetch(`/api/columns/${columnId}`, { method: "PUT", body: JSON.stringify({ title }) });
+export const updateColumn = (columnId: string, title: string, wip_limit?: number | null) =>
+  apiFetch(`/api/columns/${columnId}`, { method: "PUT", body: JSON.stringify({ title, wip_limit }) });
 
 export const deleteColumn = (columnId: string) =>
   apiFetch(`/api/columns/${columnId}`, { method: "DELETE" });
+
+export const reorderColumns = (columnIds: string[]) =>
+  apiFetch("/api/columns/reorder", { method: "POST", body: JSON.stringify({ column_ids: columnIds }) });
 
 // ── Cards ──────────────────────────────────────────────────────────────────────
 
@@ -174,11 +216,86 @@ export const updateCard = (
     priority?: string;
     due_date?: string | null | undefined;
     labels?: string;
+    assignee_id?: string | null;
   }
 ) => apiFetch(`/api/cards/${cardId}`, { method: "PUT", body: JSON.stringify(params) });
 
 export const deleteCard = (cardId: string) =>
   apiFetch(`/api/cards/${cardId}`, { method: "DELETE" });
+
+// ── Comments ───────────────────────────────────────────────────────────────────
+
+export const listComments = (cardId: string) =>
+  apiFetch<Comment[]>(`/api/cards/${cardId}/comments`);
+
+export const createComment = (cardId: string, content: string) =>
+  apiFetch<Comment>(`/api/cards/${cardId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+
+export const deleteComment = (cardId: string, commentId: string) =>
+  apiFetch(`/api/cards/${cardId}/comments/${commentId}`, { method: "DELETE" });
+
+// ── Checklist ──────────────────────────────────────────────────────────────────
+
+export const listChecklist = (cardId: string) =>
+  apiFetch<ChecklistItem[]>(`/api/cards/${cardId}/checklist`);
+
+export const createChecklistItem = (cardId: string, title: string) =>
+  apiFetch<ChecklistItem>(`/api/cards/${cardId}/checklist`, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+
+export const updateChecklistItem = (
+  cardId: string,
+  itemId: string,
+  updates: { title?: string; checked?: boolean }
+) =>
+  apiFetch<ChecklistItem>(`/api/cards/${cardId}/checklist/${itemId}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+
+export const deleteChecklistItem = (cardId: string, itemId: string) =>
+  apiFetch(`/api/cards/${cardId}/checklist/${itemId}`, { method: "DELETE" });
+
+// ── Sharing ────────────────────────────────────────────────────────────────────
+
+export const listMembers = (boardId: string) =>
+  apiFetch<BoardMember[]>(`/api/boards/${boardId}/members`);
+
+export const addMember = (boardId: string, username: string) =>
+  apiFetch(`/api/boards/${boardId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+
+export const removeMember = (boardId: string, userId: string) =>
+  apiFetch(`/api/boards/${boardId}/members/${userId}`, { method: "DELETE" });
+
+// ── Export ─────────────────────────────────────────────────────────────────────
+
+export const exportBoard = async (boardId: string, format: "json" | "csv") => {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/api/boards/${boardId}/export?format=${format}`, { headers });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `board-${boardId}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ── Activity ───────────────────────────────────────────────────────────────────
+
+export const getBoardActivity = (boardId: string, limit = 50) =>
+  apiFetch<ActivityEntry[]>(`/api/boards/${boardId}/activity?limit=${limit}`);
 
 // ── AI Chat ────────────────────────────────────────────────────────────────────
 

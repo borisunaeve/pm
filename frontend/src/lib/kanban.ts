@@ -5,12 +5,17 @@ export type Card = {
   priority?: "low" | "medium" | "high";
   due_date?: string | null;
   labels?: string;
+  checklist_total?: number;
+  checklist_done?: number;
+  assignee_id?: string | null;
+  assignee_username?: string | null;
 };
 
 export type Column = {
   id: string;
   title: string;
   cardIds: string[];
+  wip_limit?: number | null;
 };
 
 export type BoardData = {

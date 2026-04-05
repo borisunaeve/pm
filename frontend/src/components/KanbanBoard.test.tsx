@@ -129,14 +129,39 @@ describe("KanbanBoard", () => {
 
   it("shows priority badge on cards", async () => {
     render(<KanbanBoard boardId={BOARD_ID} />);
-    // "high" priority badge should appear for card-2
     expect(await screen.findByText("high")).toBeInTheDocument();
   });
 
   it("shows labels on cards", async () => {
     render(<KanbanBoard boardId={BOARD_ID} />);
-    // "research" appears as a label badge on the card (may also appear in filter dropdown)
     const matches = await screen.findAllByText("research");
     expect(matches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows stats panel with total card count", async () => {
+    render(<KanbanBoard boardId={BOARD_ID} />);
+    // Stats panel shows "2" total cards
+    expect(await screen.findByText("Total cards")).toBeInTheDocument();
+    expect(await screen.findByText("Columns")).toBeInTheDocument();
+  });
+
+  it("renders export button", async () => {
+    render(<KanbanBoard boardId={BOARD_ID} />);
+    await screen.findByText("Align roadmap themes"); // wait for load
+    expect(screen.getByText("Export")).toBeInTheDocument();
+  });
+
+  it("renders share button", async () => {
+    render(<KanbanBoard boardId={BOARD_ID} />);
+    await screen.findByText("Align roadmap themes");
+    expect(screen.getByText("Share")).toBeInTheDocument();
+  });
+
+  it("shows shortcuts overlay on ? button click", async () => {
+    render(<KanbanBoard boardId={BOARD_ID} />);
+    await screen.findByText("Align roadmap themes");
+    const qBtn = screen.getByRole("button", { name: "?" });
+    await userEvent.click(qBtn);
+    expect(await screen.findByText("Keyboard Shortcuts")).toBeInTheDocument();
   });
 });

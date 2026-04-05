@@ -43,11 +43,24 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS board_members (
+            board_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member',
+            added_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (board_id, user_id),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS columns (
             id TEXT PRIMARY KEY,
             board_id TEXT NOT NULL,
             title TEXT NOT NULL,
             [order] INTEGER NOT NULL DEFAULT 0,
+            wip_limit INTEGER,
             FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
         )
     """)
@@ -62,15 +75,51 @@ def init_db():
             priority TEXT DEFAULT 'medium',
             due_date TEXT,
             labels TEXT DEFAULT '',
-            FOREIGN KEY(column_id) REFERENCES columns(id) ON DELETE CASCADE
+            assignee_id TEXT,
+            FOREIGN KEY(column_id) REFERENCES columns(id) ON DELETE CASCADE,
+            FOREIGN KEY(assignee_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_comments (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS checklist_items (
+            id TEXT PRIMARY KEY,
+            card_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            checked INTEGER NOT NULL DEFAULT 0,
+            [order] INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS board_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            board_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_title TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
     conn.commit()
-
-    # Run migrations to add new columns to existing tables
     _migrate(conn)
-
     seed_data(conn)
     conn.close()
 
@@ -79,7 +128,7 @@ def _migrate(conn):
     """Add new columns to existing tables if they don't exist (idempotent)."""
     cursor = conn.cursor()
 
-    # users: add password_hash if missing
+    # users
     cursor.execute("PRAGMA table_info(users)")
     user_cols = {row["name"] for row in cursor.fetchall()}
     if "password_hash" not in user_cols:
@@ -87,13 +136,19 @@ def _migrate(conn):
     if "created_at" not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
 
-    # boards: add created_at if missing
+    # boards
     cursor.execute("PRAGMA table_info(boards)")
     board_cols = {row["name"] for row in cursor.fetchall()}
     if "created_at" not in board_cols:
         cursor.execute("ALTER TABLE boards ADD COLUMN created_at TEXT DEFAULT (datetime('now'))")
 
-    # cards: add priority, due_date, labels if missing
+    # columns
+    cursor.execute("PRAGMA table_info(columns)")
+    col_cols = {row["name"] for row in cursor.fetchall()}
+    if "wip_limit" not in col_cols:
+        cursor.execute("ALTER TABLE columns ADD COLUMN wip_limit INTEGER")
+
+    # cards
     cursor.execute("PRAGMA table_info(cards)")
     card_cols = {row["name"] for row in cursor.fetchall()}
     if "priority" not in card_cols:
@@ -102,6 +157,8 @@ def _migrate(conn):
         cursor.execute("ALTER TABLE cards ADD COLUMN due_date TEXT")
     if "labels" not in card_cols:
         cursor.execute("ALTER TABLE cards ADD COLUMN labels TEXT DEFAULT ''")
+    if "assignee_id" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL")
 
     conn.commit()
 
@@ -112,7 +169,6 @@ def seed_data(conn):
     if cursor.fetchone():
         return
 
-    # Seed the default user with hashed password
     cursor.execute(
         "INSERT OR IGNORE INTO users (id, username, password_hash) VALUES (?, ?, ?)",
         ("user-1", "user", hash_password("password")),
@@ -123,26 +179,26 @@ def seed_data(conn):
     )
 
     columns = [
-        ("col-backlog", "board-1", "Backlog", 0),
-        ("col-discovery", "board-1", "Discovery", 1),
-        ("col-progress", "board-1", "In Progress", 2),
-        ("col-review", "board-1", "Review", 3),
-        ("col-done", "board-1", "Done", 4),
+        ("col-backlog",   "board-1", "Backlog",     0, None),
+        ("col-discovery", "board-1", "Discovery",   1, None),
+        ("col-progress",  "board-1", "In Progress", 2, 3),
+        ("col-review",    "board-1", "Review",      3, 2),
+        ("col-done",      "board-1", "Done",        4, None),
     ]
     cursor.executemany(
-        "INSERT OR IGNORE INTO columns (id, board_id, title, [order]) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO columns (id, board_id, title, [order], wip_limit) VALUES (?, ?, ?, ?, ?)",
         columns,
     )
 
     cards = [
-        ("card-1", "col-backlog", "Align roadmap themes", "Draft quarterly themes with impact statements and metrics.", 0, "medium", None, ""),
-        ("card-2", "col-backlog", "Gather customer signals", "Review support tags, sales notes, and churn feedback.", 1, "high", None, "research"),
-        ("card-3", "col-discovery", "Prototype analytics view", "Sketch initial dashboard layout and key drill-downs.", 0, "medium", None, "design"),
-        ("card-4", "col-progress", "Refine status language", "Standardize column labels and tone across the board.", 0, "low", None, ""),
-        ("card-5", "col-progress", "Design card layout", "Add hierarchy and spacing for scanning dense lists.", 1, "medium", None, "design"),
-        ("card-6", "col-review", "QA micro-interactions", "Verify hover, focus, and loading states.", 0, "high", None, "qa"),
-        ("card-7", "col-done", "Ship marketing page", "Final copy approved and asset pack delivered.", 0, "medium", None, ""),
-        ("card-8", "col-done", "Close onboarding sprint", "Document release notes and share internally.", 1, "low", None, ""),
+        ("card-1", "col-backlog",   "Align roadmap themes",    "Draft quarterly themes with impact statements and metrics.", 0, "medium", None, ""),
+        ("card-2", "col-backlog",   "Gather customer signals",  "Review support tags, sales notes, and churn feedback.",      1, "high",   None, "research"),
+        ("card-3", "col-discovery", "Prototype analytics view", "Sketch initial dashboard layout and key drill-downs.",       0, "medium", None, "design"),
+        ("card-4", "col-progress",  "Refine status language",   "Standardize column labels and tone across the board.",       0, "low",    None, ""),
+        ("card-5", "col-progress",  "Design card layout",       "Add hierarchy and spacing for scanning dense lists.",        1, "medium", None, "design"),
+        ("card-6", "col-review",    "QA micro-interactions",    "Verify hover, focus, and loading states.",                   0, "high",   None, "qa"),
+        ("card-7", "col-done",      "Ship marketing page",      "Final copy approved and asset pack delivered.",              0, "medium", None, ""),
+        ("card-8", "col-done",      "Close onboarding sprint",  "Document release notes and share internally.",               1, "low",    None, ""),
     ]
     cursor.executemany(
         "INSERT OR IGNORE INTO cards (id, column_id, title, details, [order], priority, due_date, labels) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

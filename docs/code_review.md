@@ -1,185 +1,97 @@
-# Code Review
+# Code Review Notes
 
-Date: 2026-04-04
+Last reviewed: 2026-04-05
 
-## Summary
+## Overall Assessment
 
-The codebase is clean and well-structured for an MVP. The architecture is sound, the component decomposition is sensible, and the AI integration works correctly. The items below are grouped by severity.
-
----
-
-## Bugs
-
-### 1. Column rename fires an API call on every keystroke
-**File:** `frontend/src/components/KanbanBoard.tsx:92-105`, `frontend/src/components/KanbanColumn.tsx:43`
-
-`handleRenameColumn` is wired directly to `onChange` on the column title input. Every character typed triggers a `PUT /api/columns/:id` network request. This causes unnecessary load and risks race conditions where slow responses overwrite a later, correct title.
-
-**Fix:** Debounce the API call, or switch to `onBlur` so the save only fires when the user leaves the field.
+The codebase is in good shape. 82 backend integration tests + 24 frontend unit tests all pass. Build is clean. No known critical security issues.
 
 ---
 
-### 2. Board never shows an error if the initial fetch fails
-**File:** `frontend/src/components/KanbanBoard.tsx:29-43`
+## Backend
 
-If `GET /api/board` fails (network error, server down), `board` stays `null` and the UI shows "Loading Kanban Board..." indefinitely. The user has no indication that something went wrong.
+### Strengths
+- All routes protected with `get_current_user` — no unauthenticated data leakage
+- Access control consistently enforced at two levels: owner and member (via `board_members`)
+- `_migrate()` in `database.py` uses idempotent `ALTER TABLE` pattern — safe to run against an existing production DB
+- `bcrypt` used directly (not via passlib) — correct fix for Python 3.13 incompatibility
+- Activity logging is transparent to the caller — `_log_activity()` called inside mutation endpoints
 
-**Fix:** Add an `error` state. Show a message and a retry button if the fetch fails.
+### Issues / Risks
 
----
+**Medium: Column delete/rename allowed for board members**
+`_assert_column_access` in `columns.py` allows any board member to delete or rename columns. Destructive column operations should be owner-only (consistent with `_assert_owner` used in boards).
 
-### 3. AI sidebar board-refresh condition is logically wrong (accidentally works)
-**File:** `frontend/src/components/AIChatSidebar.tsx:64`
+**Low: No rate limiting on auth endpoints**
+`/api/auth/login` and `/api/auth/register` have no rate limit. Brute-force or spam-register is possible. Mitigate with `slowapi` middleware or failed-attempt tracking.
 
-```ts
-if (data.action && data.action.action !== "NONE") {
-    onRefreshBoard();
-}
-```
+**Low: `board_activity` table grows indefinitely**
+Append-only with no cleanup. Consider keeping last N rows per board, or adding a background trim job.
 
-`data.action` is the full `KanbanResponse` object `{ response_message, actions }`. It has no `.action` property, so `data.action.action` is always `undefined`. `undefined !== "NONE"` is always `true`, so `onRefreshBoard()` is called on every AI response — including pure conversational replies with no board changes. The board refreshes unnecessarily but never fails to refresh after a real action, so the bug is invisible in practice.
+**Low: `assignee_id` not validated against board membership**
+Cards can be assigned to any user ID without checking the assignee is actually a board member. Add the check in `update_card` and `create_card`.
 
-**Fix:** Check whether any actions were returned:
-```ts
-if (data.action?.actions?.length > 0) {
-    onRefreshBoard();
-}
-```
-
----
-
-## Code Quality
-
-### 4. Duplicate import and scattered imports in `main.py`
-**File:** `backend/main.py:52,127`
-
-`from backend.models import CreateCardRequest, UpdateCardRequest` appears twice. More broadly, imports are scattered throughout the file — each new section of routes adds its own imports inline. All imports should be consolidated at the top of the file.
+**Low: Export duplicates the access-check SQL**
+`export.py` copy-pastes the `_assert_access` query instead of importing the shared helper from `boards.py`.
 
 ---
 
-### 5. `UpdateCardRequest` uses bare `str = None` instead of `Optional[str]`
-**File:** `backend/models.py:22-23`
+## Frontend
 
-```python
-title: str = None
-details: str = None
-```
+### Strengths
+- All API calls go through the central `apiFetch()` in `api.ts` — JWT injection and 401/403 handling in one place
+- `useDarkMode` hook correctly syncs `<html class="dark">` with localStorage
+- `dueDateStatus()` is pure and fully tested
+- `KanbanCard` edit modal uses tabs (Details / Checklist / Comments) — good separation
+- `reorderColumns` calls the backend API — column order is now persistent
+- `StatsPanel` + activity feed + share dialog all implemented as self-contained components
 
-Pydantic v2 accepts this but the type annotations are incorrect — `str` should be `Optional[str]`. This causes static analysis tools to flag type errors.
+### Issues / Risks
 
-**Fix:**
-```python
-title: Optional[str] = None
-details: Optional[str] = None
-```
+**Medium: Column reorder has no rollback on failure**
+If `api.reorderColumns()` fails, `fetchBoard()` re-fetches to revert state — but there is a brief window showing the wrong order. Better to revert local state immediately on error, then re-fetch.
 
----
+**Low: `StatsPanel` "Done" count is heuristic**
+Done count checks `col.title.toLowerCase().includes("done")`. A column named "Not Done" would be counted incorrectly. A proper `is_done` boolean flag on columns would be deterministic.
 
-### 6. Magic string `'board-1'` repeated across `main.py`
-**File:** `backend/main.py:23,137`
+**Low: Dark mode uses `!important` overrides**
+`.dark` CSS overrides use `!important` on Tailwind utility classes. Works today but fragile against Tailwind renames. A full CSS variable re-theme in `:root` / `.dark` blocks would be cleaner.
 
-`'board-1'` is hardcoded in at least two separate queries. If the board ID ever changes or a constant is needed for tests, all occurrences need updating manually.
+**Low: Activity feed does not auto-refresh**
+`ActivityFeed` fetches once on open. Actions by other users won't appear until the panel is closed and reopened. Add polling or WebSocket in a future iteration.
 
-**Fix:** Define `BOARD_ID = "board-1"` at the top of `main.py` and reference it.
-
----
-
-### 7. `/api/ai/chat` returns HTTP 200 on error
-**File:** `backend/main.py:205-207`
-
-```python
-except Exception as e:
-    return {"status": "error", "message": str(e)}
-```
-
-A 200 response with an error body is misleading. Clients (and monitoring) should see a 5xx status code on failure.
-
-**Fix:** Raise an `HTTPException(status_code=500, detail=str(e))` instead.
+**Low: `ShareDialog` re-fetches all members after each invite**
+Calls `api.listMembers()` after each successful add rather than appending the new member to local state — unnecessary round-trip.
 
 ---
 
-### 8. AI model does not match the specification
-**File:** `backend/ai.py:99`
+## Testing Coverage
 
-```python
-"model": "openai/gpt-4o-mini",  # Testing a faster / high reliability model
-```
-
-`AGENTS.md` specifies `openai/gpt-oss-120b`. The comment suggests this was a temporary testing change that was never reverted.
-
-**Fix:** Change back to `openai/gpt-oss-120b`, or make the model name an environment variable so it can be overridden without a code change.
-
----
-
-## Infrastructure & Configuration
-
-### 9. `backend/` contains npm artefacts that should not exist
-**Files:** `backend/package.json`, `backend/package-lock.json`, `backend/node_modules/`
-
-These appear to be the result of accidentally running `npm install httpx python-dotenv` in the backend directory (`httpx` and `python-dotenv` are Python packages, not npm packages). None of these files belong in the Python backend.
-
-**Fix:** Delete all three. Add `backend/node_modules/` to `.gitignore` as a safeguard.
+| Area | Tests | Notes |
+|------|-------|-------|
+| Backend auth | 14 | register, login, change-password, unauthorized |
+| Backend boards | 12 | CRUD + sharing access |
+| Backend cards | 10 | CRUD + move |
+| Backend columns | 8 | CRUD + reorder |
+| Backend comments | 7 | CRUD + auth |
+| Backend checklist | 8 | CRUD + board count |
+| Backend sharing | 6 | invite, remove, access control |
+| Backend export | 5 | JSON, CSV, auth |
+| Backend assignments | 3 | create, update, board return |
+| Backend activity | 6 | log on create/delete, limit param |
+| Frontend unit | 24 | KanbanBoard, KanbanCard, api, kanban lib |
+| Playwright e2e | 37 | login, boards, kanban, features |
+| ShareDialog unit | **Missing** | no component-level unit test |
+| Checklist progress bar | **Missing** | no unit test for render |
 
 ---
 
-### 10. `.gitignore` is missing several important entries
-**File:** `.gitignore`
+## Recommendations (Priority Order)
 
-The following should be added:
-- `data/` — prevents the SQLite database from being committed
-- `frontend/out/` — prevents the Next.js build output from being committed
-- `backend/node_modules/` — see item 9
-
----
-
-### 11. `uvicorn[standard]` has no version pin in `requirements.txt`
-**File:** `backend/requirements.txt`
-
-All other packages have version pins. `uvicorn[standard]` does not, making builds non-reproducible. Relatedly, there is no `uv.lock` file committed, which means the exact resolved dependency tree is not in source control.
-
-**Fix:** Pin `uvicorn[standard]` to a specific version. Consider committing `uv.lock`.
-
----
-
-### 12. `docker-compose.yml` uses an obsolete `version` attribute
-**File:** `docker-compose.yml:2`
-
-`version: '3.8'` is deprecated in modern Compose and produces a warning on every command. Remove the line.
-
----
-
-### 13. `docker-compose.yml` mixes dev and prod behaviour
-**File:** `docker-compose.yml:16`
-
-The compose override command runs uvicorn with `--reload`, but the `Dockerfile` CMD does not. The volume mount (`./backend:/app/backend`) also means the container image's backend code is bypassed at runtime — local source files are used instead. This is useful in development but means `docker-compose up` does not test the built image.
-
-This is not necessarily wrong, but the distinction should be documented so it is not misunderstood.
-
----
-
-### 14. `database.py` default DB path only works inside Docker
-**File:** `backend/database.py:4`
-
-```python
-DB_FILE = os.environ.get("DB_FILE", "/app/data/pm.db")
-```
-
-Running the backend directly on the host (outside Docker) will attempt to create `/app/data/` which typically does not exist. The fallback path should work in both contexts.
-
-**Fix:** Use a relative path as the default fallback, e.g. `os.path.join(os.path.dirname(__file__), "..", "data", "pm.db")`.
-
----
-
-## Testing
-
-### 15. `test_ai.py` is a script, not a pytest test
-**File:** `backend/test_ai.py`
-
-The file uses `asyncio.run(test())` under `if __name__ == "__main__"`. It will not be discovered or run by `pytest`. This is fine for a live integration smoke test, but it should be documented as such in `CLAUDE.md` and named accordingly (e.g. `smoke_test_ai.py`) to avoid confusion.
-
----
-
-### 16. No e2e test coverage for login/logout or AI chat
-**File:** `frontend/tests/kanban.spec.ts`
-
-The e2e suite covers loading the board, adding a card, and dragging. The login flow (including invalid credentials) and the AI chat sidebar have no e2e coverage.
+1. Restrict column delete/rename to board owner only
+2. Validate `assignee_id` against board membership on card write
+3. Deduplicate `_assert_access` — import from `boards.py` into `export.py`
+4. Add rate limiting on `/api/auth/login` and `/api/auth/register`
+5. Unit test `ShareDialog` component
+6. Add `is_done` boolean flag to columns for accurate stats
+7. Auto-refresh activity feed with polling interval

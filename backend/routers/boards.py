@@ -5,9 +5,28 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth import get_current_user
 from backend.database import get_db_connection
-from backend.models import BoardData, BoardSummary, CardModel, ColumnModel, CreateBoardRequest, UpdateBoardRequest
+from typing import List
+from backend.models import ActivityEntry, BoardData, BoardSummary, CardModel, ColumnModel, CreateBoardRequest, UpdateBoardRequest
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
+
+
+def _assert_access(cursor, board_id: str, user_id: str):
+    """Allow board owner OR member."""
+    cursor.execute(
+        """SELECT id FROM boards WHERE id = ? AND (
+            user_id = ? OR
+            id IN (SELECT board_id FROM board_members WHERE user_id = ?))""",
+        (board_id, user_id, user_id),
+    )
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Board not found")
+
+
+def _assert_owner(cursor, board_id: str, user_id: str):
+    cursor.execute("SELECT id FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Board not found")
 
 
 @router.get("", response_model=List[BoardSummary])
@@ -21,11 +40,11 @@ def list_boards(current_user: dict = Depends(get_current_user)):
         FROM boards b
         LEFT JOIN columns col ON col.board_id = b.id
         LEFT JOIN cards c ON c.column_id = col.id
-        WHERE b.user_id = ?
+        WHERE b.user_id = ? OR b.id IN (SELECT board_id FROM board_members WHERE user_id = ?)
         GROUP BY b.id
         ORDER BY b.created_at ASC
         """,
-        (current_user["sub"],),
+        (current_user["sub"], current_user["sub"]),
     )
     rows = cursor.fetchall()
     conn.close()
@@ -49,12 +68,12 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
     )
 
     default_columns = [
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Backlog", 0),
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "In Progress", 1),
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Done", 2),
+        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Backlog", 0, None),
+        (f"col-{uuid.uuid4().hex[:8]}", board_id, "In Progress", 1, None),
+        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Done", 2, None),
     ]
     cursor.executemany(
-        "INSERT INTO columns (id, board_id, title, [order]) VALUES (?, ?, ?, ?)",
+        "INSERT INTO columns (id, board_id, title, [order], wip_limit) VALUES (?, ?, ?, ?, ?)",
         default_columns,
     )
 
@@ -69,17 +88,10 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
 def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
+    _assert_access(cursor, board_id, current_user["sub"])
 
     cursor.execute(
-        "SELECT id FROM boards WHERE id = ? AND user_id = ?",
-        (board_id, current_user["sub"]),
-    )
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Board not found")
-
-    cursor.execute(
-        "SELECT id, title, [order] FROM columns WHERE board_id = ? ORDER BY [order] ASC",
+        "SELECT id, title, [order], wip_limit FROM columns WHERE board_id = ? ORDER BY [order] ASC",
         (board_id,),
     )
     columns_rows = cursor.fetchall()
@@ -90,7 +102,13 @@ def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
     for row in columns_rows:
         col_id = row["id"]
         cursor.execute(
-            "SELECT id, title, details, priority, due_date, labels FROM cards WHERE column_id = ? ORDER BY [order] ASC",
+            """SELECT c.id, c.title, c.details, c.priority, c.due_date, c.labels,
+                      c.assignee_id, u.username as assignee_username,
+                      (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id) as checklist_total,
+                      (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id AND checked = 1) as checklist_done
+               FROM cards c
+               LEFT JOIN users u ON u.id = c.assignee_id
+               WHERE c.column_id = ? ORDER BY c.[order] ASC""",
             (col_id,),
         )
         cards_rows = cursor.fetchall()
@@ -105,8 +123,12 @@ def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
                 priority=c_row["priority"],
                 due_date=c_row["due_date"],
                 labels=c_row["labels"],
+                checklist_total=c_row["checklist_total"],
+                checklist_done=c_row["checklist_done"],
+                assignee_id=c_row["assignee_id"],
+                assignee_username=c_row["assignee_username"],
             )
-        columns.append(ColumnModel(id=col_id, title=row["title"], cardIds=card_ids))
+        columns.append(ColumnModel(id=col_id, title=row["title"], cardIds=card_ids, wip_limit=row["wip_limit"]))
 
     conn.close()
     return BoardData(columns=columns, cards=cards_map)
@@ -119,13 +141,8 @@ def update_board(board_id: str, request: UpdateBoardRequest, current_user: dict 
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE boards SET title = ? WHERE id = ? AND user_id = ?",
-        (request.title.strip(), board_id, current_user["sub"]),
-    )
-    if cursor.rowcount == 0:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Board not found")
+    _assert_owner(cursor, board_id, current_user["sub"])
+    cursor.execute("UPDATE boards SET title = ? WHERE id = ?", (request.title.strip(), board_id))
     conn.commit()
     conn.close()
     return {"status": "success"}
@@ -135,14 +152,36 @@ def update_board(board_id: str, request: UpdateBoardRequest, current_user: dict 
 def delete_board(board_id: str, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM boards WHERE id = ? AND user_id = ?",
-        (board_id, current_user["sub"]),
-    )
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Board not found")
-
+    _assert_owner(cursor, board_id, current_user["sub"])
     cursor.execute("DELETE FROM boards WHERE id = ?", (board_id,))
     conn.commit()
     conn.close()
+
+
+@router.get("/{board_id}/activity", response_model=List[ActivityEntry])
+def get_board_activity(
+    board_id: str,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_access(cursor, board_id, current_user["sub"])
+    cursor.execute(
+        """SELECT a.id, a.board_id, a.user_id, u.username, a.action,
+                  a.entity_type, a.entity_title, a.created_at
+           FROM board_activity a JOIN users u ON u.id = a.user_id
+           WHERE a.board_id = ?
+           ORDER BY a.created_at DESC LIMIT ?""",
+        (board_id, limit),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        ActivityEntry(
+            id=r["id"], board_id=r["board_id"], user_id=r["user_id"],
+            username=r["username"], action=r["action"], entity_type=r["entity_type"],
+            entity_title=r["entity_title"], created_at=r["created_at"],
+        )
+        for r in rows
+    ]

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -10,19 +10,169 @@ import {
   closestCorners,
   type DragEndEvent,
   type DragStartEvent,
-  type DragOverEvent,
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
+import { ShareDialog } from "@/components/ShareDialog";
 import { moveCard, type BoardData, type Column } from "@/lib/kanban";
 import * as api from "@/lib/api";
 import { FilterBar, type FilterState } from "@/components/FilterBar";
+import clsx from "clsx";
 
 type KanbanBoardProps = {
   boardId: string;
 };
+
+// ── Activity Feed ──────────────────────────────────────────────────────────────
+
+function ActivityFeed({ boardId, onClose }: { boardId: string; onClose: () => void }) {
+  const [entries, setEntries] = useState<api.ActivityEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getBoardActivity(boardId, 30).then(setEntries).finally(() => setLoading(false));
+  }, [boardId]);
+
+  const ACTION_ICONS: Record<string, string> = {
+    created: "+",
+    updated: "~",
+    deleted: "-",
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-end p-4 pointer-events-none"
+    >
+      <div className="pointer-events-auto w-80 rounded-2xl border border-[var(--stroke)] bg-white shadow-2xl flex flex-col max-h-[500px]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <h3 className="font-display font-semibold text-[var(--navy-dark)] text-sm">Activity</h3>
+          <button type="button" onClick={onClose} className="text-[var(--gray-text)] hover:text-[var(--navy-dark)] text-xs">
+            Close
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-3 space-y-2">
+          {loading && <p className="text-xs text-[var(--gray-text)]">Loading...</p>}
+          {!loading && entries.length === 0 && (
+            <p className="text-xs text-[var(--gray-text)] italic">No activity yet.</p>
+          )}
+          {entries.map((e) => (
+            <div key={e.id} className="flex gap-2 items-start">
+              <span className={clsx(
+                "flex-shrink-0 h-5 w-5 rounded-full text-[10px] font-bold flex items-center justify-center",
+                e.action === "created" && "bg-green-100 text-green-700",
+                e.action === "deleted" && "bg-red-100 text-red-700",
+                e.action === "updated" && "bg-blue-100 text-blue-700",
+              )}>
+                {ACTION_ICONS[e.action] ?? "·"}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[var(--navy-dark)]">
+                  <span className="font-semibold">{e.username}</span>
+                  {" "}{e.action} {e.entity_type}
+                  {e.entity_title && <span className="italic"> "{e.entity_title}"</span>}
+                </p>
+                <p className="text-[10px] text-[var(--gray-text)]">
+                  {new Date(e.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Dark mode hook ─────────────────────────────────────────────────────────────
+
+function useDarkMode() {
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("pm_dark") === "1";
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("pm_dark", dark ? "1" : "0");
+  }, [dark]);
+
+  return [dark, setDark] as const;
+}
+
+// ── Stats Panel ────────────────────────────────────────────────────────────────
+
+function StatsPanel({ board }: { board: BoardData }) {
+  const cards = Object.values(board.cards);
+  const totalCards = cards.length;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const overdueCount = cards.filter((c) => {
+    if (!c.due_date) return false;
+    const due = new Date(c.due_date + "T00:00:00");
+    return due < today;
+  }).length;
+
+  const highPrioCount = cards.filter((c) => c.priority === "high").length;
+
+  const doneCols = board.columns.filter((c) =>
+    c.title.toLowerCase().includes("done") || c.title.toLowerCase().includes("complete")
+  );
+  const doneCount = doneCols.reduce((s, c) => s + c.cardIds.length, 0);
+
+  const stats = [
+    { label: "Total cards", value: totalCards, color: "text-[var(--primary-blue)]" },
+    { label: "High priority", value: highPrioCount, color: "text-red-500" },
+    { label: "Overdue", value: overdueCount, color: overdueCount > 0 ? "text-red-500" : "text-[var(--gray-text)]" },
+    { label: "Done", value: doneCount, color: "text-green-600" },
+    { label: "Columns", value: board.columns.length, color: "text-[var(--purple-sec)]" },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      {stats.map((s) => (
+        <div key={s.label} className="rounded-2xl bg-white/70 border border-[var(--stroke)] px-4 py-2.5 flex flex-col items-center min-w-[80px]">
+          <span className={clsx("text-2xl font-display font-bold", s.color)}>{s.value}</span>
+          <span className="text-[10px] uppercase tracking-wide text-[var(--gray-text)] font-semibold mt-0.5">{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Keyboard shortcuts help overlay ───────────────────────────────────────────
+
+const SHORTCUTS = [
+  { key: "/", desc: "Focus search" },
+  { key: "n", desc: "Add card (first column)" },
+  { key: "Esc", desc: "Close modal / clear focus" },
+  { key: "?", desc: "Show / hide shortcuts" },
+];
+
+function ShortcutsHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-display font-semibold text-[var(--navy-dark)] text-lg mb-4">Keyboard Shortcuts</h3>
+        <ul className="space-y-2">
+          {SHORTCUTS.map((s) => (
+            <li key={s.key} className="flex items-center justify-between">
+              <span className="text-sm text-[var(--navy-dark)]">{s.desc}</span>
+              <kbd className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-mono text-[var(--navy-dark)]">{s.key}</kbd>
+            </li>
+          ))}
+        </ul>
+        <button type="button" onClick={onClose} className="mt-4 w-full rounded-xl border border-gray-200 py-2 text-sm text-[var(--gray-text)] hover:text-[var(--navy-dark)] transition">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -31,6 +181,10 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterState>({ search: "", priority: "", label: "" });
+  const [showSharing, setShowSharing] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [dark, setDark] = useDarkMode();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -38,7 +192,7 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     })
   );
 
-  const fetchBoard = async () => {
+  const fetchBoard = useCallback(async () => {
     try {
       const data = await api.getBoard(boardId);
       setBoard(data);
@@ -46,10 +200,9 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     } catch {
       setFetchError(true);
     }
-  };
+  }, [boardId]);
 
-  // Fetch board title separately from the boards list
-  const fetchBoardTitle = async () => {
+  const fetchBoardTitle = useCallback(async () => {
     try {
       const boards = await api.listBoards();
       const found = boards.find((b) => b.id === boardId);
@@ -57,16 +210,47 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     } catch {
       // silent
     }
-  };
+  }, [boardId]);
 
   useEffect(() => {
     fetchBoard();
     fetchBoardTitle();
-  }, [boardId]);
+  }, [fetchBoard, fetchBoardTitle]);
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const inInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+
+      if (e.key === "?" && !inInput) {
+        setShowShortcuts((v) => !v);
+        return;
+      }
+      if (e.key === "Escape") {
+        setShowShortcuts(false);
+        setShowSharing(false);
+        setShowActivity(false);
+        return;
+      }
+      if (e.key === "/" && !inInput) {
+        e.preventDefault();
+        document.getElementById("filter-search")?.focus();
+        return;
+      }
+      if (e.key === "n" && !inInput && board) {
+        // Open new card form in first column — trigger click on first "+ Add Card" button
+        const btn = document.querySelector<HTMLButtonElement>("[data-add-card-btn]");
+        btn?.click();
+        return;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [board]);
 
   const cardsById = useMemo(() => board?.cards || {}, [board?.cards]);
 
-  // Collect all unique labels across all cards for the filter dropdown
   const allLabels = useMemo(() => {
     if (!board) return [];
     const labels = new Set<string>();
@@ -76,9 +260,8 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     return Array.from(labels).sort();
   }, [board?.cards]);
 
-  // Apply filter: returns set of card IDs that pass
   const visibleCardIds = useMemo(() => {
-    if (!board || (!filter.search && !filter.priority && !filter.label)) return null; // null = show all
+    if (!board || (!filter.search && !filter.priority && !filter.label)) return null;
     const q = filter.search.toLowerCase();
     return new Set(
       Object.values(board.cards)
@@ -114,23 +297,16 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     const activeId = active.id as string;
     const overId = over.id as string;
 
-    // Column reorder
     if (board.columns.some((c) => c.id === activeId)) {
       const oldIdx = board.columns.findIndex((c) => c.id === activeId);
       const newIdx = board.columns.findIndex((c) => c.id === overId);
       if (oldIdx === -1 || newIdx === -1) return;
       const newColumns = arrayMove(board.columns, oldIdx, newIdx);
       setBoard((prev) => prev ? { ...prev, columns: newColumns } : prev);
-      // Persist new order for each column
-      newColumns.forEach((col, idx) => {
-        api.updateColumn(col.id, col.title).catch(() => {});
-        // We rely on order from the array index; backend doesn't have a reorder endpoint yet
-        // so we just optimistically update client-side — a future iteration can add /api/columns/reorder
-      });
+      api.reorderColumns(newColumns.map((c) => c.id)).catch(() => fetchBoard());
       return;
     }
 
-    // Card move
     const newColumns = moveCard(board.columns, activeId, overId);
     setBoard((prev) => prev ? { ...prev, columns: newColumns } : prev);
 
@@ -152,7 +328,15 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     setBoard((prev) =>
       prev ? { ...prev, columns: prev.columns.map((c) => c.id === columnId ? { ...c, title } : c) } : null
     );
-    await api.updateColumn(columnId, title);
+    const col = board?.columns.find((c) => c.id === columnId);
+    await api.updateColumn(columnId, title, col?.wip_limit);
+  };
+
+  const handleSetWipLimit = async (columnId: string, title: string, wip_limit: number | null) => {
+    setBoard((prev) =>
+      prev ? { ...prev, columns: prev.columns.map((c) => c.id === columnId ? { ...c, wip_limit } : c) } : null
+    );
+    await api.updateColumn(columnId, title, wip_limit);
   };
 
   const handleAddColumn = async (title: string) => {
@@ -161,7 +345,7 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
       prev
         ? {
             ...prev,
-            columns: [...prev.columns, { id: newCol.id, title: newCol.title, cardIds: [] }],
+            columns: [...prev.columns, { id: newCol.id, title: newCol.title, cardIds: [], wip_limit: null }],
           }
         : null
     );
@@ -265,14 +449,116 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
         <header className="flex flex-col gap-4 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-6 shadow-[var(--shadow)] backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="font-display text-3xl font-semibold text-[var(--navy-dark)]">
-                {boardTitle || "Board"}
-              </h1>
-              <p className="mt-1 text-sm text-[var(--gray-text)]">
-                {board.columns.length} columns · {Object.keys(board.cards).length} cards
-              </p>
+              <div className="flex items-center gap-3">
+                <a href="/boards" className="text-sm text-[var(--gray-text)] hover:text-[var(--navy-dark)] transition">
+                  Boards
+                </a>
+                <span className="text-[var(--gray-text)]">/</span>
+                <h1 className="font-display text-3xl font-semibold text-[var(--navy-dark)]">
+                  {boardTitle || "Board"}
+                </h1>
+              </div>
+            </div>
+
+            {/* Header action buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Export */}
+              <div className="relative group">
+                <button className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-semibold text-[var(--navy-dark)] hover:bg-gray-50 transition flex items-center gap-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  Export
+                </button>
+                <div className="absolute right-0 top-full mt-1 hidden group-hover:flex flex-col bg-white rounded-xl border border-[var(--stroke)] shadow-lg overflow-hidden z-10 min-w-[100px]">
+                  <button
+                    type="button"
+                    onClick={() => api.exportBoard(boardId, "json")}
+                    className="px-4 py-2 text-sm text-[var(--navy-dark)] hover:bg-gray-50 text-left transition"
+                  >
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => api.exportBoard(boardId, "csv")}
+                    className="px-4 py-2 text-sm text-[var(--navy-dark)] hover:bg-gray-50 text-left transition"
+                  >
+                    CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Activity */}
+              <button
+                type="button"
+                onClick={() => setShowActivity((v) => !v)}
+                className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-semibold text-[var(--navy-dark)] hover:bg-gray-50 transition flex items-center gap-1.5"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                Activity
+              </button>
+
+              {/* Share */}
+              <button
+                type="button"
+                onClick={() => setShowSharing(true)}
+                className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-semibold text-[var(--navy-dark)] hover:bg-gray-50 transition flex items-center gap-1.5"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+                Share
+              </button>
+
+              {/* Shortcuts */}
+              <button
+                type="button"
+                onClick={() => setShowShortcuts(true)}
+                title="Keyboard shortcuts (?)"
+                className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-semibold text-[var(--navy-dark)] hover:bg-gray-50 transition"
+              >
+                ?
+              </button>
+
+              {/* Dark mode toggle */}
+              <button
+                type="button"
+                onClick={() => setDark((d) => !d)}
+                title={dark ? "Light mode" : "Dark mode"}
+                className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm text-[var(--navy-dark)] hover:bg-gray-50 transition"
+              >
+                {dark ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
+
+          {/* Stats */}
+          <StatsPanel board={board} />
+
           <FilterBar filter={filter} onChange={setFilter} allLabels={allLabels} />
         </header>
 
@@ -291,7 +577,9 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
                 <KanbanColumn
                   column={column}
                   cards={column.cardIds.map((id) => board.cards[id]).filter(Boolean).filter((c) => !visibleCardIds || visibleCardIds.has(c.id))}
+                  boardId={boardId}
                   onRename={handleRenameColumn}
+                  onSetWipLimit={handleSetWipLimit}
                   onAddCard={handleAddCard}
                   onDeleteCard={handleDeleteCard}
                   onDeleteColumn={handleDeleteColumn}
@@ -321,6 +609,10 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
           </DragOverlay>
         </DndContext>
       </main>
+
+      {showSharing && <ShareDialog boardId={boardId} onClose={() => setShowSharing(false)} />}
+      {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {showActivity && <ActivityFeed boardId={boardId} onClose={() => setShowActivity(false)} />}
     </div>
   );
 };
