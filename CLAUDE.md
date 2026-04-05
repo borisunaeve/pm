@@ -4,29 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Project Management MVP: a Kanban board web app with AI chat integration. The AI can create, move, delete cards, and rename columns via natural language. MVP constraints: one hardcoded user (`user`/`password`), one board per user, runs locally in Docker.
+A comprehensive Project Management application: multi-user, multi-board Kanban with AI chat integration. Features real JWT authentication, user registration, multiple boards per user, column CRUD, and card metadata (priority, labels, due dates).
 
 ## Architecture
 
 - **Backend**: Python FastAPI (`backend/`) — serves the REST API at `/api/*` and the Next.js static export at `/`
 - **Frontend**: Next.js App Router (`frontend/`) — static export (`output: 'export'`), served by FastAPI from `frontend/out/`
-- **Database**: SQLite at `data/pm.db`, initialized on startup with seed data from `frontend/src/lib/kanban.ts`
-- **AI**: OpenRouter API via `backend/ai.py`, model `openai/gpt-oss-120b`, using structured JSON output (`KanbanResponse` Pydantic model) to parse board actions
-- **Drag-and-drop**: `@dnd-kit/core` + `@dnd-kit/sortable` — cards are draggable within and across columns
+- **Auth**: JWT tokens via `python-jose`, bcrypt password hashing. `backend/auth.py` contains `get_current_user` FastAPI dependency.
+- **Database**: SQLite at `data/pm.db`, initialized on startup. Schema: `users`, `boards`, `columns`, `cards` with cascade deletes.
+- **AI**: OpenRouter API via `backend/ai.py`, model `openai/gpt-oss-120b`, using structured JSON output (`KanbanResponse` Pydantic model)
+- **Drag-and-drop**: `@dnd-kit/core` + `@dnd-kit/sortable`
 
-### Request flow
-Browser → FastAPI → `/api/board` returns `BoardData` JSON → React renders Kanban  
-AI chat: Browser → `POST /api/ai/chat` → FastAPI fetches board state → calls OpenRouter → parses `KanbanAction[]` → executes DB operations → returns updated message
+### API Routes
+- `POST /api/auth/register` — register new user (creates default board)
+- `POST /api/auth/login` — returns JWT token
+- `GET /api/auth/me` — current user profile
+- `PUT /api/auth/password` — change password
+- `GET /api/boards` — list user's boards (auth required)
+- `POST /api/boards` — create board
+- `GET /api/boards/{id}` — get full board data (columns + cards)
+- `PUT /api/boards/{id}` — rename board
+- `DELETE /api/boards/{id}` — delete board (cascades)
+- `POST /api/columns` — create column `{title, board_id}`
+- `PUT /api/columns/{id}` — rename column
+- `DELETE /api/columns/{id}` — delete column (cascades cards)
+- `POST /api/cards` — create card `{title, column_id, priority?, due_date?, labels?}`
+- `PUT /api/cards/{id}` — update card (move + metadata)
+- `DELETE /api/cards/{id}` — delete card
+- `POST /api/ai/chat/{board_id}` — AI chat for a specific board
+
+### Frontend Routes
+- `/` — redirects to `/boards` or `/login`
+- `/login` — login + register (same page, toggle)
+- `/boards` — board dashboard (list, create, rename, delete)
+- `/board?id=<boardId>` — single board Kanban view
 
 ### Key files
-- `backend/main.py` — all API routes
-- `backend/ai.py` — OpenRouter integration, `KanbanResponse`/`KanbanAction` structured output schema
-- `backend/database.py` — SQLite init, seed data, `get_db_connection()`
-- `backend/models.py` — Pydantic request/response models
-- `frontend/src/lib/kanban.ts` — `BoardData`, `Card`, `Column` types + `initialData` seed + `moveCard()` logic
-- `backend/constants.py` — `BOARD_ID` constant (hardcoded `"board-1"` for MVP)
-- `frontend/src/components/KanbanBoard.tsx` — main board component, fetches from backend API, orchestrates dnd-kit drag state
-- `frontend/src/components/AIChatSidebar.tsx` — collapsible AI chat panel
+- `backend/auth.py` — JWT utilities, `hash_password`, `verify_password`, `get_current_user`
+- `backend/main.py` — FastAPI app + router registration
+- `backend/ai.py` — OpenRouter integration, `KanbanResponse` schema
+- `backend/database.py` — SQLite init, migration, seed data
+- `backend/models.py` — all Pydantic models
+- `backend/routers/auth.py` — auth endpoints
+- `backend/routers/boards.py` — board CRUD
+- `backend/routers/columns.py` — column CRUD
+- `backend/routers/cards.py` — card CRUD
+- `backend/routers/ai_chat.py` — AI chat handler
+- `frontend/src/lib/api.ts` — typed API client with JWT injection
+- `frontend/src/lib/kanban.ts` — `BoardData`, `Card`, `Column` types + `moveCard()` logic
+- `frontend/src/components/KanbanBoard.tsx` — board view (accepts `boardId` prop)
+- `frontend/src/components/KanbanCard.tsx` — card with edit modal, priority/labels badges
+- `frontend/src/components/AIChatSidebar.tsx` — AI chat (accepts `boardId` prop)
+
+### Card fields
+- `title`, `details`, `order`, `column_id` (existing)
+- `priority`: `"low" | "medium" | "high"` (default: `"medium"`)
+- `due_date`: ISO date string or null
+- `labels`: comma-separated string (e.g. `"frontend,urgent"`)
 
 ## Development Commands
 
@@ -55,6 +89,7 @@ npm run test:all         # unit + e2e
 ```bash
 cd frontend
 npx vitest run src/lib/kanban.test.ts      # lib tests
+npx vitest run src/lib/api.test.ts         # API client tests
 npx vitest run src/components/KanbanBoard.test.tsx  # component tests
 ```
 
@@ -63,6 +98,12 @@ npx vitest run src/components/KanbanBoard.test.tsx  # component tests
 cd backend
 uv pip install -r requirements.txt
 uv run uvicorn backend.main:app --reload --port 8000
+```
+
+### Run backend tests
+```bash
+python -m pytest backend/tests/ -v    # all 44 integration tests
+python -m pytest backend/tests/test_auth.py    # auth tests only
 ```
 
 ### Run backend smoke test (live OpenRouter call, requires OPENROUTER_API_KEY)
