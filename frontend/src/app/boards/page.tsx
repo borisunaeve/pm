@@ -91,12 +91,20 @@ export default function BoardsPage() {
           <h1 className="text-white font-display text-xl font-bold">Project Studio</h1>
           {user && <p className="text-white/50 text-xs mt-0.5">Signed in as {user.username}</p>}
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-white/60 hover:text-white text-sm transition-colors"
-        >
-          Sign Out
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push("/profile")}
+            className="text-white/60 hover:text-white text-sm transition-colors"
+          >
+            Profile
+          </button>
+          <button
+            onClick={handleLogout}
+            className="text-white/60 hover:text-white text-sm transition-colors"
+          >
+            Sign Out
+          </button>
+        </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10">

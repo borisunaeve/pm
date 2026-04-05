@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { useDroppable } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Card, Column } from "@/lib/kanban";
 import { KanbanCard } from "@/components/KanbanCard";
 import { NewCardForm } from "@/components/NewCardForm";
@@ -30,8 +31,27 @@ export const KanbanColumn = ({
   onDeleteColumn,
   onUpdateCard,
 }: KanbanColumnProps) => {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: column.id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setSortRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: column.id });
   const [localTitle, setLocalTitle] = useState(column.title);
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  // Combine the droppable and sortable refs
+  const setNodeRef = (node: HTMLElement | null) => {
+    setDropRef(node);
+    setSortRef(node);
+  };
 
   useEffect(() => {
     setLocalTitle(column.title);
@@ -40,16 +60,24 @@ export const KanbanColumn = ({
   return (
     <section
       ref={setNodeRef}
+      style={style}
       className={clsx(
         "flex min-h-[520px] flex-col rounded-3xl border border-[var(--stroke)] bg-[var(--surface-strong)] p-4 shadow-[var(--shadow)] transition",
-        isOver && "ring-2 ring-[var(--accent-yellow)]"
+        isOver && "ring-2 ring-[var(--accent-yellow)]",
+        isDragging && "opacity-50"
       )}
       data-testid={`column-${column.id}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
-            <div className="h-2 w-8 rounded-full bg-[var(--accent-yellow)] flex-shrink-0" />
+            {/* Drag handle for column */}
+            <div
+              {...attributes}
+              {...listeners}
+              className="h-2 w-8 rounded-full bg-[var(--accent-yellow)] flex-shrink-0 cursor-grab active:cursor-grabbing"
+              title="Drag to reorder column"
+            />
             <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
               {cards.length}
             </span>

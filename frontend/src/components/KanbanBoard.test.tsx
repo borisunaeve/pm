@@ -135,6 +135,8 @@ describe("KanbanBoard", () => {
 
   it("shows labels on cards", async () => {
     render(<KanbanBoard boardId={BOARD_ID} />);
-    expect(await screen.findByText("research")).toBeInTheDocument();
+    // "research" appears as a label badge on the card (may also appear in filter dropdown)
+    const matches = await screen.findAllByText("research");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 });

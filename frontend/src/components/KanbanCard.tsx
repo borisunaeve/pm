@@ -10,6 +10,22 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-green-100 text-green-700",
 };
 
+function dueDateStatus(due_date: string | null | undefined): "overdue" | "due-soon" | "ok" | "none" {
+  if (!due_date) return "none";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(due_date + "T00:00:00");
+  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "overdue";
+  if (diffDays <= 3) return "due-soon";
+  return "ok";
+}
+
+function formatDate(due_date: string): string {
+  const d = new Date(due_date + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 type KanbanCardProps = {
   card: Card;
   onDelete: (cardId: string) => void;
@@ -28,6 +44,7 @@ export const KanbanCard = ({ card, onDelete, onUpdate }: KanbanCardProps) => {
 
   const labelList = card.labels ? card.labels.split(",").map((l) => l.trim()).filter(Boolean) : [];
   const priority = card.priority || "medium";
+  const dateStatus = dueDateStatus(card.due_date);
 
   return (
     <>
@@ -35,8 +52,11 @@ export const KanbanCard = ({ card, onDelete, onUpdate }: KanbanCardProps) => {
         ref={setNodeRef}
         style={style}
         className={clsx(
-          "rounded-2xl border border-transparent bg-white px-4 py-3 shadow-[0_12px_24px_rgba(3,33,71,0.08)]",
+          "rounded-2xl border bg-white px-4 py-3 shadow-[0_12px_24px_rgba(3,33,71,0.08)]",
           "transition-all duration-150",
+          dateStatus === "overdue" && "border-red-300 bg-red-50/40",
+          dateStatus === "due-soon" && "border-amber-300",
+          dateStatus !== "overdue" && dateStatus !== "due-soon" && "border-transparent",
           isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]"
         )}
         {...attributes}
@@ -60,8 +80,14 @@ export const KanbanCard = ({ card, onDelete, onUpdate }: KanbanCardProps) => {
                 {priority}
               </span>
               {card.due_date && (
-                <span className="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-[10px] font-semibold">
-                  {card.due_date}
+                <span className={clsx(
+                  "rounded-full px-2 py-0.5 text-[10px] font-semibold flex items-center gap-1",
+                  dateStatus === "overdue" && "bg-red-100 text-red-700",
+                  dateStatus === "due-soon" && "bg-amber-100 text-amber-700",
+                  dateStatus === "ok" && "bg-blue-50 text-blue-700",
+                )}>
+                  {dateStatus === "overdue" && "Overdue · "}
+                  {formatDate(card.due_date)}
                 </span>
               )}
               {labelList.map((label) => (
