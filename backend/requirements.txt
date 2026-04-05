@@ -3,3 +3,6 @@ uvicorn[standard]==0.43.0
 pydantic
 httpx
 python-dotenv
+python-jose[cryptography]==3.3.0
+bcrypt==5.0.0
+python-multipart==0.0.9

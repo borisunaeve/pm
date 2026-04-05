@@ -3,11 +3,13 @@ import mimetypes
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.database import init_db
-from backend.routers import ai_chat, board, cards, columns
+from backend.routers import ai_chat, board, boards, cards, columns
+from backend.routers import auth as auth_router
 
 
 @asynccontextmanager
@@ -16,9 +18,19 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Project Management API MVP", lifespan=lifespan)
+app = FastAPI(title="Project Management API", lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router.router)
 app.include_router(board.router)
+app.include_router(boards.router)
 app.include_router(cards.router)
 app.include_router(columns.router)
 app.include_router(ai_chat.router)

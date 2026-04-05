@@ -11,7 +11,8 @@ A Project Management MVP: a Kanban board web app with AI chat integration. The A
 - **Backend**: Python FastAPI (`backend/`) — serves the REST API at `/api/*` and the Next.js static export at `/`
 - **Frontend**: Next.js App Router (`frontend/`) — static export (`output: 'export'`), served by FastAPI from `frontend/out/`
 - **Database**: SQLite at `data/pm.db`, initialized on startup with seed data from `frontend/src/lib/kanban.ts`
-- **AI**: OpenRouter API via `backend/ai.py`, using structured JSON output (`KanbanResponse` Pydantic model) to parse board actions
+- **AI**: OpenRouter API via `backend/ai.py`, model `openai/gpt-oss-120b`, using structured JSON output (`KanbanResponse` Pydantic model) to parse board actions
+- **Drag-and-drop**: `@dnd-kit/core` + `@dnd-kit/sortable` — cards are draggable within and across columns
 
 ### Request flow
 Browser → FastAPI → `/api/board` returns `BoardData` JSON → React renders Kanban  
@@ -23,7 +24,8 @@ AI chat: Browser → `POST /api/ai/chat` → FastAPI fetches board state → cal
 - `backend/database.py` — SQLite init, seed data, `get_db_connection()`
 - `backend/models.py` — Pydantic request/response models
 - `frontend/src/lib/kanban.ts` — `BoardData`, `Card`, `Column` types + `initialData` seed + `moveCard()` logic
-- `frontend/src/components/KanbanBoard.tsx` — main board component, fetches from backend API
+- `backend/constants.py` — `BOARD_ID` constant (hardcoded `"board-1"` for MVP)
+- `frontend/src/components/KanbanBoard.tsx` — main board component, fetches from backend API, orchestrates dnd-kit drag state
 - `frontend/src/components/AIChatSidebar.tsx` — collapsible AI chat panel
 
 ## Development Commands
@@ -52,7 +54,8 @@ npm run test:all         # unit + e2e
 ### Run a single unit test
 ```bash
 cd frontend
-npx vitest run src/lib/kanban.test.ts
+npx vitest run src/lib/kanban.test.ts      # lib tests
+npx vitest run src/components/KanbanBoard.test.tsx  # component tests
 ```
 
 ### Backend dev (without Docker)

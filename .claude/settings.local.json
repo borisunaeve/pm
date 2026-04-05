@@ -9,7 +9,11 @@
       "Bash(python:*)",
       "Bash(docker stop:*)",
       "Bash(curl -sf http://localhost:8000/api/hello)",
-      "Bash(break)"
+      "Bash(break)",
+      "Bash(pip install:*)",
+      "Bash(npm test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ]
   }
 }
