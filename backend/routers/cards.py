@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.auth import get_current_user
 from backend.database import get_db_connection
 from backend.models import CardActivityEntry, CreateCardRequest, UpdateCardRequest
+from backend.notify import notify_watchers
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
@@ -90,6 +91,27 @@ def create_card(request: CreateCardRequest, current_user: dict = Depends(get_cur
 
     board_id = _get_board_id_for_column(cursor, request.column_id)
     _log_activity(cursor, board_id, current_user["sub"], "created", "card", request.title)
+
+    # Auto-watch: the creator watches the card; if assignee != creator, notify assignee
+    cursor.execute(
+        "INSERT OR IGNORE INTO card_watchers (card_id, user_id) VALUES (?, ?)",
+        (new_id, current_user["sub"]),
+    )
+    if request.assignee_id and request.assignee_id != current_user["sub"]:
+        cursor.execute(
+            "INSERT OR IGNORE INTO card_watchers (card_id, user_id) VALUES (?, ?)",
+            (new_id, request.assignee_id),
+        )
+        cursor.execute("SELECT username FROM users WHERE id = ?", (current_user["sub"],))
+        actor_row = cursor.fetchone()
+        actor_name = actor_row["username"] if actor_row else "Someone"
+        cursor.execute(
+            """INSERT INTO user_notifications (user_id, board_id, card_id, type, message)
+               VALUES (?, ?, ?, ?, ?)""",
+            (request.assignee_id, board_id, new_id, "assigned",
+             f"{actor_name} assigned you to \"{request.title}\""),
+        )
+
     conn.commit()
     conn.close()
     return {
@@ -187,8 +209,20 @@ def update_card(
             )
 
     board_id = _get_board_id_for_column(cursor, request.column_id)
+    card_title = request.title if request.title else (existing["title"] if existing else "card")
     if request.title:
         _log_activity(cursor, board_id, current_user["sub"], "updated", "card", request.title)
+
+    # Notify watchers of this card (excluding the person making the change)
+    cursor.execute("SELECT username FROM users WHERE id = ?", (current_user["sub"],))
+    actor_row = cursor.fetchone()
+    actor_name = actor_row["username"] if actor_row else "Someone"
+    notify_watchers(
+        cursor, card_id, current_user["sub"],
+        "card_updated",
+        f"{actor_name} updated \"{card_title}\"",
+        board_id=board_id,
+    )
 
     conn.commit()
     conn.close()

@@ -13,14 +13,58 @@ export type TokenPayload = {
 export type UserProfile = {
   id: string;
   username: string;
+  display_name: string;
   created_at: string | null;
 };
 
 export type BoardSummary = {
   id: string;
   title: string;
+  description: string;
+  color: string | null;
   created_at: string | null;
   card_count: number;
+  member_count: number;
+};
+
+export type DashboardCard = {
+  id: string;
+  title: string;
+  priority: "low" | "medium" | "high";
+  due_date: string | null;
+  labels: string;
+  board_id: string;
+  board_title: string;
+  column_id: string;
+  column_title: string;
+  checklist_total: number;
+  checklist_done: number;
+};
+
+export type DashboardSummary = {
+  board_count: number;
+  assigned_cards: number;
+  overdue_cards: number;
+  due_this_week: number;
+  unread_notifications: number;
+};
+
+export type PersistentNotification = {
+  id: number;
+  user_id: string;
+  board_id: string | null;
+  card_id: string | null;
+  type: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+};
+
+export type WatcherItem = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  created_at: string;
 };
 
 export type Card = {
@@ -182,6 +226,12 @@ export const register = (username: string, password: string) =>
 
 export const getMe = () => apiFetch<UserProfile>("/api/auth/me");
 
+export const updateProfile = (display_name: string) =>
+  apiFetch<UserProfile>("/api/auth/me", {
+    method: "PUT",
+    body: JSON.stringify({ display_name }),
+  });
+
 export const changePassword = (current_password: string, new_password: string) =>
   apiFetch("/api/auth/password", {
     method: "PUT",
@@ -192,14 +242,20 @@ export const changePassword = (current_password: string, new_password: string) =
 
 export const listBoards = () => apiFetch<BoardSummary[]>("/api/boards");
 
-export const createBoard = (title: string, template?: string) =>
-  apiFetch<BoardSummary>("/api/boards", { method: "POST", body: JSON.stringify({ title, template }) });
+export const createBoard = (title: string, template?: string, description?: string, color?: string) =>
+  apiFetch<BoardSummary>("/api/boards", {
+    method: "POST",
+    body: JSON.stringify({ title, template, description, color }),
+  });
 
 export const getBoard = (boardId: string, include_archived = false) =>
   apiFetch<BoardData>(`/api/boards/${boardId}${include_archived ? "?include_archived=true" : ""}`);
 
-export const updateBoard = (boardId: string, title: string) =>
-  apiFetch(`/api/boards/${boardId}`, { method: "PUT", body: JSON.stringify({ title }) });
+export const updateBoard = (boardId: string, title: string, description?: string, color?: string) =>
+  apiFetch(`/api/boards/${boardId}`, {
+    method: "PUT",
+    body: JSON.stringify({ title, description, color }),
+  });
 
 export const deleteBoard = (boardId: string) =>
   apiFetch(`/api/boards/${boardId}`, { method: "DELETE" });
@@ -482,7 +538,42 @@ export type NotificationItem = {
 };
 
 export const getNotifications = () =>
-  apiFetch<NotificationItem[]>("/api/notifications");
+  apiFetch<NotificationItem[]>("/api/notifications/due");
+
+export const getPersistentNotifications = () =>
+  apiFetch<PersistentNotification[]>("/api/notifications");
+
+export const getUnreadCount = () =>
+  apiFetch<{ count: number }>("/api/notifications/unread-count");
+
+export const markNotificationRead = (id: number) =>
+  apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
+
+export const markAllNotificationsRead = () =>
+  apiFetch("/api/notifications/read-all", { method: "POST" });
+
+export const clearReadNotifications = () =>
+  apiFetch("/api/notifications", { method: "DELETE" });
+
+// ── Dashboard ──────────────────────────────────────────────────────────────────
+
+export const getMyCards = () => apiFetch<DashboardCard[]>("/api/dashboard/my-cards");
+
+export const getDashboardSummary = () => apiFetch<DashboardSummary>("/api/dashboard/summary");
+
+// ── Card Watchers ──────────────────────────────────────────────────────────────
+
+export const getCardWatchers = (cardId: string) =>
+  apiFetch<WatcherItem[]>(`/api/cards/${cardId}/watchers`);
+
+export const getWatchStatus = (cardId: string) =>
+  apiFetch<{ watching: boolean }>(`/api/cards/${cardId}/watch/status`);
+
+export const watchCard = (cardId: string) =>
+  apiFetch(`/api/cards/${cardId}/watch`, { method: "POST" });
+
+export const unwatchCard = (cardId: string) =>
+  apiFetch(`/api/cards/${cardId}/watch`, { method: "DELETE" });
 
 // ── Bulk Operations ────────────────────────────────────────────────────────────
 

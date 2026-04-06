@@ -14,6 +14,7 @@ from backend.models import (
     LoginRequest,
     RegisterRequest,
     TokenResponse,
+    UpdateProfileRequest,
     UserProfile,
 )
 
@@ -84,14 +85,40 @@ def register(request: RegisterRequest):
 def me(current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, username, created_at FROM users WHERE id = ?", (current_user["sub"],))
+    cursor.execute("SELECT id, username, display_name, created_at FROM users WHERE id = ?", (current_user["sub"],))
     row = cursor.fetchone()
     conn.close()
 
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return UserProfile(id=row["id"], username=row["username"], created_at=row["created_at"])
+    return UserProfile(
+        id=row["id"], username=row["username"],
+        display_name=row["display_name"] or "",
+        created_at=row["created_at"],
+    )
+
+
+@router.put("/me", response_model=UserProfile)
+def update_profile(
+    request: UpdateProfileRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET display_name = ? WHERE id = ?",
+        (request.display_name.strip(), current_user["sub"]),
+    )
+    conn.commit()
+    cursor.execute("SELECT id, username, display_name, created_at FROM users WHERE id = ?", (current_user["sub"],))
+    row = cursor.fetchone()
+    conn.close()
+    return UserProfile(
+        id=row["id"], username=row["username"],
+        display_name=row["display_name"] or "",
+        created_at=row["created_at"],
+    )
 
 
 @router.put("/password")

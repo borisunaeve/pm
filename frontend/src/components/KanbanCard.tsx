@@ -299,6 +299,8 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
   const [relationCount, setRelationCount] = useState(0);
   const [activityEntries, setActivityEntries] = useState<api.CardActivityEntry[]>([]);
   const [activityCount, setActivityCount] = useState(0);
+  const [watching, setWatching] = useState(false);
+  const [watchLoading, setWatchLoading] = useState(false);
 
   useEffect(() => {
     api.listMembers(boardId).then(setMembers).catch(() => {});
@@ -307,7 +309,23 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
     api.listComments(card.id).then((items) => setCommentCount(items.length)).catch(() => {});
     api.listRelations(card.id).then((rels) => setRelationCount(rels.length)).catch(() => {});
     api.getCardActivity(card.id).then((entries) => { setActivityEntries(entries); setActivityCount(entries.length); }).catch(() => {});
+    api.getWatchStatus(card.id).then((s) => setWatching(s.watching)).catch(() => {});
   }, [boardId, card.id]);
+
+  const handleToggleWatch = async () => {
+    setWatchLoading(true);
+    try {
+      if (watching) {
+        await api.unwatchCard(card.id);
+        setWatching(false);
+      } else {
+        await api.watchCard(card.id);
+        setWatching(true);
+      }
+    } finally {
+      setWatchLoading(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -549,6 +567,30 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
           {tab === "activity" && (
             <ActivityTab entries={activityEntries} />
           )}
+        </div>
+
+        {/* Footer: watch toggle */}
+        <div className="px-6 py-3 border-t border-[var(--stroke)] flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleToggleWatch}
+            disabled={watchLoading}
+            className={clsx(
+              "text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors",
+              watching
+                ? "border-[var(--primary-blue)] text-[var(--primary-blue)] bg-[var(--primary-blue)]/10"
+                : "border-[var(--stroke)] text-[var(--gray-text)] hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
+            )}
+          >
+            {watchLoading ? "..." : watching ? "Watching" : "Watch"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs text-[var(--gray-text)] hover:text-[var(--navy-dark)] transition-colors"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>

@@ -28,6 +28,7 @@ def init_db():
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            display_name TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now'))
         )
     """)
@@ -37,6 +38,8 @@ def init_db():
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             title TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            color TEXT DEFAULT NULL,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
@@ -164,6 +167,33 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_watchers (
+            card_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (card_id, user_id),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            board_id TEXT,
+            card_id TEXT,
+            type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE SET NULL
+        )
+    """)
+
     conn.commit()
     _migrate(conn)
     seed_data(conn)
@@ -181,12 +211,18 @@ def _migrate(conn):
         cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
     if "created_at" not in user_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN created_at TEXT DEFAULT ''")
+    if "display_name" not in user_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN display_name TEXT DEFAULT ''")
 
     # boards
     cursor.execute("PRAGMA table_info(boards)")
     board_cols = {row["name"] for row in cursor.fetchall()}
     if "created_at" not in board_cols:
         cursor.execute("ALTER TABLE boards ADD COLUMN created_at TEXT DEFAULT ''")
+    if "description" not in board_cols:
+        cursor.execute("ALTER TABLE boards ADD COLUMN description TEXT DEFAULT ''")
+    if "color" not in board_cols:
+        cursor.execute("ALTER TABLE boards ADD COLUMN color TEXT DEFAULT NULL")
 
     # columns
     cursor.execute("PRAGMA table_info(columns)")
@@ -255,6 +291,35 @@ def _migrate(conn):
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    # card_watchers table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_watchers (
+            card_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (card_id, user_id),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    # user_notifications table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            board_id TEXT,
+            card_id TEXT,
+            type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE SET NULL
         )
     """)
 

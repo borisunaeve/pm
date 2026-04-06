@@ -10,7 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from backend.database import init_db
 from backend.routers import ai_chat, analytics, board, boards, bulk, cards, columns
 from backend.routers import auth as auth_router
-from backend.routers import checklist, comments, export, notifications, relations, search, sharing, sprints
+from backend.routers import (
+    checklist, comments, dashboard, export, notifications,
+    relations, search, sharing, sprints, watchers,
+)
 
 
 @asynccontextmanager
@@ -40,11 +43,13 @@ app.include_router(bulk.router)      # Must be before cards.router
 app.include_router(checklist.router)
 app.include_router(comments.router)
 app.include_router(export.router)
+app.include_router(dashboard.router)
 app.include_router(notifications.router)
 app.include_router(relations.router)
 app.include_router(search.router)
 app.include_router(sharing.router)
 app.include_router(sprints.router)
+app.include_router(watchers.router)
 
 
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "out")

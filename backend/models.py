@@ -205,17 +205,24 @@ class CreateColumnRequest(BaseModel):
 class BoardSummary(BaseModel):
     id: str
     title: str
+    description: Optional[str] = ""
+    color: Optional[str] = None
     created_at: Optional[str] = None
     card_count: Optional[int] = 0
+    member_count: Optional[int] = 0
 
 
 class CreateBoardRequest(BaseModel):
     title: str
     template: Optional[str] = None  # "software" | "marketing" | "personal"
+    description: Optional[str] = ""
+    color: Optional[str] = None
 
 
 class UpdateBoardRequest(BaseModel):
     title: str
+    description: Optional[str] = None
+    color: Optional[str] = None
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
@@ -240,7 +247,12 @@ class TokenResponse(BaseModel):
 class UserProfile(BaseModel):
     id: str
     username: str
+    display_name: Optional[str] = ""
     created_at: Optional[str] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str
 
 
 class ChangePasswordRequest(BaseModel):
@@ -284,6 +296,42 @@ class NotificationItem(BaseModel):
     column_title: str
     due_date: str
     type: str  # "overdue" | "due_soon"
+
+
+class PersistentNotification(BaseModel):
+    id: int
+    user_id: str
+    board_id: Optional[str] = None
+    card_id: Optional[str] = None
+    type: str
+    message: str
+    read: bool
+    created_at: str
+
+
+# ── Dashboard ──────────────────────────────────────────────────────────────────
+
+class DashboardCard(BaseModel):
+    id: str
+    title: str
+    priority: Optional[str] = "medium"
+    due_date: Optional[str] = None
+    labels: Optional[str] = ""
+    board_id: str
+    board_title: str
+    column_id: str
+    column_title: str
+    checklist_total: Optional[int] = 0
+    checklist_done: Optional[int] = 0
+
+
+# ── Card Watchers ──────────────────────────────────────────────────────────────
+
+class WatcherItem(BaseModel):
+    user_id: str
+    username: str
+    display_name: Optional[str] = ""
+    created_at: str
 
 
 # ── Bulk Operations ────────────────────────────────────────────────────────────

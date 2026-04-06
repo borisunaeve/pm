@@ -17,7 +17,7 @@ const mockBoardData = {
   },
 };
 
-const mockBoardsSummary = [{ id: BOARD_ID, title: "Test Board", created_at: null, card_count: 2 }];
+const mockBoardsSummary = [{ id: BOARD_ID, title: "Test Board", description: "", color: null, created_at: null, card_count: 2, member_count: 0 }];
 
 // Mock localStorage
 const localStorageMock = (() => {

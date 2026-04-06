@@ -163,7 +163,7 @@ class TestCardActivity:
 
 class TestNotifications:
     def _get_notifs(self, client, headers):
-        resp = client.get("/api/notifications", headers=headers)
+        resp = client.get("/api/notifications/due", headers=headers)
         assert resp.status_code == 200
         return resp.json()
 
@@ -236,7 +236,7 @@ class TestNotifications:
         assert len(found) == 1
 
     def test_notifications_requires_auth(self, client):
-        resp = client.get("/api/notifications")
+        resp = client.get("/api/notifications/due")
         assert resp.status_code == 401
 
     def test_notification_has_correct_fields(self, client, seeded_board, auth_headers):

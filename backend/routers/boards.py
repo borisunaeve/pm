@@ -50,11 +50,13 @@ def list_boards(current_user: dict = Depends(get_current_user)):
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT b.id, b.title, b.created_at,
-               COUNT(CASE WHEN c.archived = 0 THEN 1 END) as card_count
+        SELECT b.id, b.title, b.description, b.color, b.created_at,
+               COUNT(DISTINCT CASE WHEN c.archived = 0 THEN c.id END) as card_count,
+               COUNT(DISTINCT bm.user_id) as member_count
         FROM boards b
         LEFT JOIN columns col ON col.board_id = b.id
         LEFT JOIN cards c ON c.column_id = col.id
+        LEFT JOIN board_members bm ON bm.board_id = b.id
         WHERE b.user_id = ? OR b.id IN (SELECT board_id FROM board_members WHERE user_id = ?)
         GROUP BY b.id
         ORDER BY b.created_at ASC
@@ -64,7 +66,11 @@ def list_boards(current_user: dict = Depends(get_current_user)):
     rows = cursor.fetchall()
     conn.close()
     return [
-        BoardSummary(id=r["id"], title=r["title"], created_at=r["created_at"], card_count=r["card_count"])
+        BoardSummary(
+            id=r["id"], title=r["title"], created_at=r["created_at"],
+            card_count=r["card_count"], description=r["description"] or "",
+            color=r["color"], member_count=r["member_count"],
+        )
         for r in rows
     ]
 
@@ -78,8 +84,9 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO boards (id, user_id, title) VALUES (?, ?, ?)",
-        (board_id, current_user["sub"], request.title.strip()),
+        "INSERT INTO boards (id, user_id, title, description, color) VALUES (?, ?, ?, ?, ?)",
+        (board_id, current_user["sub"], request.title.strip(),
+         request.description or "", request.color),
     )
 
     template_columns = BOARD_TEMPLATES.get(request.template or "", [])
@@ -100,10 +107,13 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
     )
 
     conn.commit()
-    cursor.execute("SELECT id, title, created_at FROM boards WHERE id = ?", (board_id,))
+    cursor.execute("SELECT id, title, description, color, created_at FROM boards WHERE id = ?", (board_id,))
     row = cursor.fetchone()
     conn.close()
-    return BoardSummary(id=row["id"], title=row["title"], created_at=row["created_at"], card_count=0)
+    return BoardSummary(
+        id=row["id"], title=row["title"], created_at=row["created_at"],
+        description=row["description"] or "", color=row["color"], card_count=0, member_count=0,
+    )
 
 
 @router.get("/{board_id}", response_model=BoardData)
@@ -183,7 +193,18 @@ def update_board(board_id: str, request: UpdateBoardRequest, current_user: dict 
     conn = get_db_connection()
     cursor = conn.cursor()
     _assert_owner(cursor, board_id, current_user["sub"])
-    cursor.execute("UPDATE boards SET title = ? WHERE id = ?", (request.title.strip(), board_id))
+
+    updates = ["title = ?"]
+    params: list = [request.title.strip()]
+    if request.description is not None:
+        updates.append("description = ?")
+        params.append(request.description)
+    if request.color is not None:
+        updates.append("color = ?")
+        params.append(request.color if request.color != "" else None)
+    params.append(board_id)
+
+    cursor.execute(f"UPDATE boards SET {', '.join(updates)} WHERE id = ?", tuple(params))
     conn.commit()
     conn.close()
     return {"status": "success"}

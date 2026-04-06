@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.auth import get_current_user
 from backend.database import get_db_connection
 from backend.models import Comment, CreateCommentRequest
+from backend.notify import notify_watchers
 
 router = APIRouter(prefix="/api/cards", tags=["comments"])
 
@@ -60,6 +61,24 @@ def create_comment(
         "INSERT INTO card_comments (id, card_id, user_id, content) VALUES (?, ?, ?, ?)",
         (comment_id, card_id, current_user["sub"], request.content.strip()),
     )
+
+    # Notify watchers about the new comment
+    cursor.execute(
+        """SELECT c.title, col.board_id FROM cards c
+           JOIN columns col ON col.id = c.column_id WHERE c.id = ?""",
+        (card_id,),
+    )
+    card_row = cursor.fetchone()
+    cursor.execute("SELECT username FROM users WHERE id = ?", (current_user["sub"],))
+    actor_row = cursor.fetchone()
+    if card_row and actor_row:
+        notify_watchers(
+            cursor, card_id, current_user["sub"],
+            "comment_added",
+            f"{actor_row['username']} commented on \"{card_row['title']}\"",
+            board_id=card_row["board_id"],
+        )
+
     conn.commit()
 
     cursor.execute(

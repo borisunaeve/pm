@@ -2,12 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getMe, changePassword, clearAuth, isLoggedIn, type UserProfile } from "@/lib/api";
+import { getMe, changePassword, updateProfile, clearAuth, isLoggedIn, type UserProfile } from "@/lib/api";
 
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [displayName, setDisplayName] = useState("");
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
+  const [displayNameSuccess, setDisplayNameSuccess] = useState(false);
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -18,8 +22,21 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (!isLoggedIn()) { router.replace("/login"); return; }
-    getMe().then(setProfile).finally(() => setLoading(false));
+    getMe().then((p) => { setProfile(p); setDisplayName(p.display_name ?? ""); }).finally(() => setLoading(false));
   }, [router]);
+
+  const handleUpdateDisplayName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDisplayNameSaving(true);
+    setDisplayNameSuccess(false);
+    try {
+      const updated = await updateProfile(displayName);
+      setProfile(updated);
+      setDisplayNameSuccess(true);
+    } finally {
+      setDisplayNameSaving(false);
+    }
+  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +109,32 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Display name */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+          <h3 className="text-white font-display font-semibold mb-4">Display Name</h3>
+          <form onSubmit={handleUpdateDisplayName} className="space-y-4">
+            <div>
+              <label className="text-white/50 text-xs uppercase tracking-wide block mb-1">Display Name</label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => { setDisplayName(e.target.value); setDisplayNameSuccess(false); }}
+                placeholder={profile?.username}
+                className="w-full rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 px-4 py-2.5 text-sm focus:outline-none focus:border-[#209dd7]"
+              />
+              <p className="text-white/30 text-xs mt-1">Shown in comments and assignments instead of your username</p>
+            </div>
+            {displayNameSuccess && <p className="text-green-400 text-sm">Display name updated.</p>}
+            <button
+              type="submit"
+              disabled={displayNameSaving}
+              className="w-full bg-[#209dd7] text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-[#1a87ba] transition-colors disabled:opacity-60"
+            >
+              {displayNameSaving ? "Saving..." : "Update Display Name"}
+            </button>
+          </form>
         </div>
 
         {/* Change password */}

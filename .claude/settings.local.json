@@ -32,7 +32,8 @@
       "Bash(curl -s http://localhost:8000/ -o /dev/null -w \"HTTP %{http_code}\\\\n\")",
       "Bash(curl -s http://localhost:8000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"username\":\"user\",\"password\":\"password\"}')",
       "Bash(git rm:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(ls:*)"
     ]
   }
 }

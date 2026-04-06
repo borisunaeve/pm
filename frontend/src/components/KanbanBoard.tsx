@@ -264,6 +264,8 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<api.NotificationItem[]>([]);
+  const [persistentNotifs, setPersistentNotifs] = useState<api.PersistentNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
   const [dark, setDark] = useDarkMode();
@@ -298,6 +300,8 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
     fetchBoard();
     fetchBoardTitle();
     api.getNotifications().then(setNotifications).catch(() => {});
+    api.getPersistentNotifications().then(setPersistentNotifs).catch(() => {});
+    api.getUnreadCount().then((r) => setUnreadCount(r.count)).catch(() => {});
   }, [fetchBoard, fetchBoardTitle]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
@@ -724,12 +728,19 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowNotifications((v) => !v)}
-                  title="Due-date notifications"
+                  onClick={() => {
+                    setShowNotifications((v) => !v);
+                    if (!showNotifications) {
+                      // Refresh notifications when opening
+                      api.getPersistentNotifications().then(setPersistentNotifs).catch(() => {});
+                      api.getUnreadCount().then((r) => setUnreadCount(r.count)).catch(() => {});
+                    }
+                  }}
+                  title="Notifications"
                   className={clsx(
                     "rounded-xl border px-3 py-2 text-sm font-semibold transition flex items-center gap-1.5",
                     showNotifications
-                      ? "border-red-300 bg-red-50 text-red-700"
+                      ? "border-[#209dd7]/40 bg-[#209dd7]/10 text-[#209dd7]"
                       : "border-[var(--stroke)] bg-white text-[var(--navy-dark)] hover:bg-gray-50"
                   )}
                 >
@@ -737,9 +748,9 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                   </svg>
-                  {notifications.length > 0 && (
+                  {(unreadCount > 0 || notifications.length > 0) && (
                     <span className="rounded-full bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 leading-none">
-                      {notifications.length}
+                      {unreadCount + notifications.length}
                     </span>
                   )}
                 </button>
@@ -747,35 +758,82 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
                   <div className="absolute right-0 top-full mt-2 w-80 rounded-2xl border border-[var(--stroke)] bg-white shadow-2xl z-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                       <h4 className="font-display font-semibold text-[var(--navy-dark)] text-sm">Notifications</h4>
-                      <button type="button" onClick={() => setShowNotifications(false)} className="text-[var(--gray-text)] hover:text-[var(--navy-dark)] text-xs">Close</button>
+                      <div className="flex items-center gap-3">
+                        {persistentNotifs.some((n) => !n.read) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              api.markAllNotificationsRead().then(() => {
+                                setPersistentNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+                                setUnreadCount(0);
+                              }).catch(() => {});
+                            }}
+                            className="text-[10px] text-[#209dd7] hover:underline"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setShowNotifications(false)} className="text-[var(--gray-text)] hover:text-[var(--navy-dark)] text-xs">Close</button>
+                      </div>
                     </div>
-                    <div className="max-h-72 overflow-y-auto">
-                      {notifications.length === 0 ? (
-                        <p className="px-4 py-6 text-sm text-[var(--gray-text)] italic text-center">No upcoming due dates.</p>
-                      ) : (
-                        <ul className="divide-y divide-gray-50">
-                          {notifications.map((n) => (
-                            <li key={n.card_id}>
-                              <a
-                                href={`/board?id=${n.board_id}`}
-                                className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition"
-                                onClick={() => setShowNotifications(false)}
-                              >
-                                <span className={clsx(
-                                  "mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase",
-                                  n.type === "overdue" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                                )}>
-                                  {n.type === "overdue" ? "Overdue" : "Due soon"}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-semibold text-[var(--navy-dark)] truncate">{n.card_title}</p>
-                                  <p className="text-[10px] text-[var(--gray-text)]">{n.board_title} · {n.column_title}</p>
-                                  <p className="text-[10px] text-[var(--gray-text)]">{n.due_date}</p>
-                                </div>
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
+                    <div className="max-h-80 overflow-y-auto">
+                      {/* Due-date alerts */}
+                      {notifications.length > 0 && (
+                        <div className="px-4 pt-2 pb-1">
+                          <p className="text-[10px] font-semibold text-[var(--gray-text)] uppercase tracking-wider">Due Dates</p>
+                        </div>
+                      )}
+                      {notifications.map((n) => (
+                        <a
+                          key={`due-${n.card_id}`}
+                          href={`/board?id=${n.board_id}`}
+                          className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 transition"
+                          onClick={() => setShowNotifications(false)}
+                        >
+                          <span className={clsx(
+                            "mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase",
+                            n.type === "overdue" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                          )}>
+                            {n.type === "overdue" ? "Overdue" : "Due soon"}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[var(--navy-dark)] truncate">{n.card_title}</p>
+                            <p className="text-[10px] text-[var(--gray-text)]">{n.board_title} · {n.due_date}</p>
+                          </div>
+                        </a>
+                      ))}
+                      {/* Persistent notifications */}
+                      {persistentNotifs.length > 0 && (
+                        <div className="px-4 pt-2 pb-1">
+                          <p className="text-[10px] font-semibold text-[var(--gray-text)] uppercase tracking-wider">Activity</p>
+                        </div>
+                      )}
+                      {persistentNotifs.map((n) => (
+                        <div
+                          key={n.id}
+                          className={clsx(
+                            "flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition",
+                            !n.read && "bg-blue-50/50"
+                          )}
+                          onClick={() => {
+                            if (!n.read) {
+                              api.markNotificationRead(n.id).then(() => {
+                                setPersistentNotifs((prev) => prev.map((x) => x.id === n.id ? { ...x, read: true } : x));
+                                setUnreadCount((c) => Math.max(0, c - 1));
+                              }).catch(() => {});
+                            }
+                            if (n.board_id) window.location.href = `/board?id=${n.board_id}`;
+                          }}
+                        >
+                          {!n.read && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#209dd7] flex-shrink-0" />}
+                          <div className="flex-1 min-w-0">
+                            <p className={clsx("text-xs truncate", !n.read ? "font-semibold text-[var(--navy-dark)]" : "text-[var(--gray-text)]")}>{n.message}</p>
+                            <p className="text-[10px] text-[var(--gray-text)]">{new Date(n.created_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {notifications.length === 0 && persistentNotifs.length === 0 && (
+                        <p className="px-4 py-6 text-sm text-[var(--gray-text)] italic text-center">No notifications.</p>
                       )}
                     </div>
                   </div>
