@@ -13,6 +13,13 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: "bg-green-100 text-green-700",
 };
 
+const RELATION_LABELS: Record<string, string> = {
+  "blocks": "Blocks",
+  "blocked-by": "Blocked by",
+  "relates-to": "Relates to",
+  "duplicate-of": "Duplicate of",
+};
+
 function dueDateStatus(due_date: string | null | undefined): "overdue" | "due-soon" | "ok" | "none" {
   if (!due_date) return "none";
   const today = new Date();
@@ -34,9 +41,14 @@ type KanbanCardProps = {
   boardId: string;
   onDelete: (cardId: string) => void;
   onUpdate: (updates: Partial<Card>) => Promise<void>;
+  onArchive?: (cardId: string) => void;
+  onCopy?: (cardId: string) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelect?: (cardId: string, selected: boolean) => void;
 };
 
-export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProps) => {
+export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCopy, selectable, selected, onSelect }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
   const [editing, setEditing] = useState(false);
@@ -59,6 +71,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
   const priority = card.priority || "medium";
   const dateStatus = dueDateStatus(card.due_date);
   const hasChecklist = checklistCounts.total > 0;
+  const hasTimeTracking = card.estimated_hours != null || card.actual_hours != null;
 
   return (
     <>
@@ -77,6 +90,21 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
         {...listeners}
         data-testid={`card-${card.id}`}
       >
+        {selectable && (
+          <div
+            className="mb-2 -mt-1 flex items-center gap-2"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={!!selected}
+              onChange={(e) => onSelect?.(card.id, e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 cursor-pointer accent-[var(--primary-blue)]"
+              aria-label={`Select ${card.title}`}
+            />
+            <span className="text-[10px] text-[var(--gray-text)]">Select</span>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <h4 className="font-display text-sm font-semibold text-[var(--navy-dark)] leading-snug">
@@ -109,6 +137,20 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
                   checklistCounts.done === checklistCounts.total ? "text-green-600" : "text-[var(--gray-text)]"
                 )}>
                   {checklistCounts.done}/{checklistCounts.total}
+                </span>
+              </div>
+            )}
+
+            {/* Time tracking badge */}
+            {hasTimeTracking && (
+              <div className="mt-1.5 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--gray-text)]">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span className="text-[10px] text-[var(--gray-text)] tabular-nums">
+                  {card.actual_hours != null ? `${card.actual_hours}h` : "0h"}
+                  {card.estimated_hours != null ? ` / ${card.estimated_hours}h` : ""}
                 </span>
               </div>
             )}
@@ -163,6 +205,35 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate }: KanbanCardProp
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
               </svg>
             </button>
+            {onCopy && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onCopy(card.id); }}
+                className="rounded-lg px-1.5 py-1 text-[10px] font-semibold text-[var(--gray-text)] hover:text-[var(--navy-dark)] hover:bg-gray-100 transition-colors"
+                aria-label={`Copy ${card.title}`}
+                title="Duplicate card"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            )}
+            {onArchive && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onArchive(card.id); }}
+                className="rounded-lg px-1.5 py-1 text-[10px] font-semibold text-[var(--gray-text)] hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                aria-label={`Archive ${card.title}`}
+                title="Archive card"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                  <rect x="1" y="3" width="22" height="5"></rect>
+                  <line x1="10" y1="12" x2="14" y2="12"></line>
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(card.id); }}
@@ -205,7 +276,7 @@ type CardEditModalProps = {
   onChecklistChange: (done: number, total: number) => void;
 };
 
-type ModalTab = "details" | "checklist" | "comments";
+type ModalTab = "details" | "checklist" | "comments" | "relations" | "activity";
 
 const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: CardEditModalProps) => {
   const [tab, setTab] = useState<ModalTab>("details");
@@ -217,22 +288,42 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
   const [dueDate, setDueDate] = useState(card.due_date || "");
   const [labels, setLabels] = useState(card.labels || "");
   const [assigneeId, setAssigneeId] = useState(card.assignee_id || "");
+  const [estimatedHours, setEstimatedHours] = useState(card.estimated_hours != null ? String(card.estimated_hours) : "");
+  const [actualHours, setActualHours] = useState(card.actual_hours != null ? String(card.actual_hours) : "");
+  const [sprintId, setSprintId] = useState(card.sprint_id || "");
   const [members, setMembers] = useState<api.BoardMember[]>([]);
+  const [sprints, setSprints] = useState<api.Sprint[]>([]);
   const [saving, setSaving] = useState(false);
   const [checklistCount, setChecklistCount] = useState({ total: card.checklist_total ?? 0, done: card.checklist_done ?? 0 });
   const [commentCount, setCommentCount] = useState(0);
+  const [relationCount, setRelationCount] = useState(0);
+  const [activityEntries, setActivityEntries] = useState<api.CardActivityEntry[]>([]);
+  const [activityCount, setActivityCount] = useState(0);
 
   useEffect(() => {
     api.listMembers(boardId).then(setMembers).catch(() => {});
+    api.listSprints(boardId).then(setSprints).catch(() => {});
     api.listChecklist(card.id).then((items) => setChecklistCount({ total: items.length, done: items.filter(i => i.checked).length })).catch(() => {});
     api.listComments(card.id).then((items) => setCommentCount(items.length)).catch(() => {});
+    api.listRelations(card.id).then((rels) => setRelationCount(rels.length)).catch(() => {});
+    api.getCardActivity(card.id).then((entries) => { setActivityEntries(entries); setActivityCount(entries.length); }).catch(() => {});
   }, [boardId, card.id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
     setSaving(true);
-    await onSave({ title: title.trim(), details, priority, due_date: dueDate || null, labels, assignee_id: assigneeId || null });
+    await onSave({
+      title: title.trim(),
+      details,
+      priority,
+      due_date: dueDate || null,
+      labels,
+      assignee_id: assigneeId || null,
+      estimated_hours: estimatedHours !== "" ? parseFloat(estimatedHours) : null,
+      actual_hours: actualHours !== "" ? parseFloat(actualHours) : null,
+      sprint_id: sprintId || null,
+    });
     setSaving(false);
   };
 
@@ -252,18 +343,20 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
         onClick={(e) => e.stopPropagation()}
       >
         {/* Tab bar */}
-        <div className="flex border-b border-[var(--stroke)] px-6 pt-5">
+        <div className="flex border-b border-[var(--stroke)] px-6 pt-5 overflow-x-auto">
           {([
             { id: "details", label: "Details" },
             { id: "checklist", label: "Checklist", badge: checklistCount.total > 0 ? `${checklistCount.done}/${checklistCount.total}` : undefined },
             { id: "comments", label: "Comments", badge: commentCount > 0 ? String(commentCount) : undefined },
+            { id: "relations", label: "Relations", badge: relationCount > 0 ? String(relationCount) : undefined },
+          { id: "activity", label: "History", badge: activityCount > 0 ? String(activityCount) : undefined },
           ] as { id: ModalTab; label: string; badge?: string }[]).map((t) => (
             <button
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
               className={clsx(
-                "mr-5 pb-3 text-sm font-semibold transition-colors border-b-2 -mb-px flex items-center gap-1.5",
+                "mr-5 pb-3 text-sm font-semibold transition-colors border-b-2 -mb-px flex items-center gap-1.5 whitespace-nowrap",
                 tab === t.id
                   ? "border-[var(--primary-blue)] text-[var(--primary-blue)]"
                   : "border-transparent text-[var(--gray-text)] hover:text-[var(--navy-dark)]"
@@ -327,6 +420,53 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
                   />
                 </div>
               </div>
+              {/* Time Tracking */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Time Tracking (hours)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-[var(--gray-text)] block mb-1">Estimated</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={estimatedHours}
+                      onChange={(e) => setEstimatedHours(e.target.value)}
+                      placeholder="e.g. 8"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--gray-text)] block mb-1">Actual</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={actualHours}
+                      onChange={(e) => setActualHours(e.target.value)}
+                      placeholder="e.g. 6"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                    />
+                  </div>
+                </div>
+                {estimatedHours && actualHours && parseFloat(estimatedHours) > 0 && (
+                  <div className="mt-2">
+                    <div className="flex justify-between text-[10px] text-[var(--gray-text)] mb-1">
+                      <span>{actualHours}h logged</span>
+                      <span>{Math.round((parseFloat(actualHours) / parseFloat(estimatedHours)) * 100)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={clsx(
+                          "h-full rounded-full transition-all",
+                          parseFloat(actualHours) > parseFloat(estimatedHours) ? "bg-red-500" : "bg-[var(--primary-blue)]"
+                        )}
+                        style={{ width: `${Math.min(100, Math.round((parseFloat(actualHours) / parseFloat(estimatedHours)) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
               <div>
                 <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Labels (comma-separated)</label>
                 <input
@@ -336,18 +476,33 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
                 />
               </div>
-              <div>
-                <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Assignee</label>
-                <select
-                  value={assigneeId}
-                  onChange={(e) => setAssigneeId(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
-                >
-                  <option value="">Unassigned</option>
-                  {members.map((m) => (
-                    <option key={m.user_id} value={m.user_id}>{m.username}</option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Assignee</label>
+                  <select
+                    value={assigneeId}
+                    onChange={(e) => setAssigneeId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                  >
+                    <option value="">Unassigned</option>
+                    {members.map((m) => (
+                      <option key={m.user_id} value={m.user_id}>{m.username}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Sprint</label>
+                  <select
+                    value={sprintId}
+                    onChange={(e) => setSprintId(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                  >
+                    <option value="">No sprint</option>
+                    {sprints.map((s) => (
+                      <option key={s.id} value={s.id}>{s.title} ({s.status})</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button
@@ -381,6 +536,18 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
 
           {tab === "comments" && (
             <CommentsTab cardId={card.id} onCountChange={setCommentCount} />
+          )}
+
+          {tab === "relations" && (
+            <RelationsTab
+              cardId={card.id}
+              boardId={boardId}
+              onCountChange={setRelationCount}
+            />
+          )}
+
+          {tab === "activity" && (
+            <ActivityTab entries={activityEntries} />
           )}
         </div>
       </div>
@@ -640,3 +807,225 @@ const CommentsTab = ({ cardId, onCountChange }: { cardId: string; onCountChange:
     </div>
   );
 };
+
+
+// ── Relations Tab ──────────────────────────────────────────────────────────────
+
+const RelationsTab = ({
+  cardId,
+  boardId,
+  onCountChange,
+}: {
+  cardId: string;
+  boardId: string;
+  onCountChange: (n: number) => void;
+}) => {
+  const [relations, setRelations] = useState<api.CardRelation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState("");
+  const [searchResults, setSearchResults] = useState<api.SearchResultCard[]>([]);
+  const [relationType, setRelationType] = useState("relates-to");
+  const [searching, setSearching] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.listRelations(cardId)
+      .then((data) => { setRelations(data); onCountChange(data.length); })
+      .finally(() => setLoading(false));
+  }, [cardId]);
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQ.trim()) return;
+    setSearching(true);
+    setError("");
+    try {
+      const results = await api.searchCards(searchQ.trim());
+      // Exclude self and already-related cards
+      const relatedIds = new Set(relations.map(r => r.related_card_id));
+      setSearchResults(results.filter(r => r.id !== cardId && !relatedIds.has(r.id)));
+    } catch {
+      setError("Search failed");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleAdd = async (relatedCardId: string) => {
+    setAdding(true);
+    setError("");
+    try {
+      const rel = await api.addRelation(cardId, relatedCardId, relationType);
+      const next = [...relations, rel];
+      setRelations(next);
+      onCountChange(next.length);
+      setSearchResults(prev => prev.filter(r => r.id !== relatedCardId));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to add relation");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDelete = async (relationId: number) => {
+    await api.deleteRelation(cardId, relationId);
+    const next = relations.filter(r => r.id !== relationId);
+    setRelations(next);
+    onCountChange(next.length);
+  };
+
+  if (loading) return <div className="py-6 text-center text-sm text-[var(--gray-text)]">Loading...</div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Existing relations */}
+      {relations.length === 0 ? (
+        <p className="py-2 text-sm text-[var(--gray-text)] italic">No relations yet.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {relations.map((rel) => (
+            <li key={rel.id} className="flex items-center gap-3 rounded-xl px-3 py-2.5 bg-gray-50 group">
+              <span className="text-[10px] font-semibold text-[var(--purple-sec)] uppercase bg-purple-50 rounded-full px-2 py-0.5 whitespace-nowrap">
+                {RELATION_LABELS[rel.relation_type] ?? rel.relation_type}
+              </span>
+              <span className="flex-1 text-sm text-[var(--navy-dark)] truncate">{rel.related_card_title}</span>
+              <button
+                type="button"
+                onClick={() => handleDelete(rel.id)}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded text-[var(--gray-text)] hover:text-red-500 hover:bg-red-50 transition flex-shrink-0"
+                aria-label="Remove relation"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Add relation */}
+      <div className="border-t border-[var(--stroke)] pt-4 space-y-3">
+        <p className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide">Link a card</p>
+        <select
+          value={relationType}
+          onChange={(e) => setRelationType(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+        >
+          <option value="relates-to">Relates to</option>
+          <option value="blocks">Blocks</option>
+          <option value="blocked-by">Blocked by</option>
+          <option value="duplicate-of">Duplicate of</option>
+        </select>
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="Search cards..."
+            className="flex-1 border border-[var(--stroke)] rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] bg-[var(--surface-strong)] outline-none focus:border-[var(--primary-blue)]"
+          />
+          <button
+            type="submit"
+            disabled={!searchQ.trim() || searching}
+            className="rounded-xl bg-[var(--primary-blue)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40 transition whitespace-nowrap"
+          >
+            {searching ? "..." : "Search"}
+          </button>
+        </form>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        {searchResults.length > 0 && (
+          <ul className="space-y-1 max-h-40 overflow-y-auto">
+            {searchResults.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 rounded-xl px-3 py-2 bg-gray-50 hover:bg-gray-100 transition">
+                <span className="flex-1 text-sm text-[var(--navy-dark)] truncate">
+                  {r.title}
+                  <span className="ml-1.5 text-[10px] text-[var(--gray-text)]">{r.board_title} · {r.column_title}</span>
+                </span>
+                <button
+                  type="button"
+                  disabled={adding}
+                  onClick={() => handleAdd(r.id)}
+                  className="text-[10px] font-semibold text-[var(--primary-blue)] hover:underline flex-shrink-0"
+                >
+                  Link
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {searchResults.length === 0 && searchQ && !searching && (
+          <p className="text-xs text-[var(--gray-text)] italic">No cards found.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+// ── Activity Tab ───────────────────────────────────────────────────────────────
+
+const FIELD_LABELS: Record<string, string> = {
+  title: "title",
+  priority: "priority",
+  due_date: "due date",
+  labels: "labels",
+  assignee_id: "assignee",
+  estimated_hours: "estimated hours",
+  actual_hours: "actual hours",
+  sprint_id: "sprint",
+  column: "column",
+};
+
+const ActivityTab = ({ entries }: { entries: api.CardActivityEntry[] }) => {
+  if (entries.length === 0) {
+    return (
+      <div className="py-8 text-center text-sm text-[var(--gray-text)] italic">
+        No changes recorded yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {entries.map((entry) => (
+        <div key={entry.id} className="flex gap-3 items-start rounded-xl bg-gray-50 px-3 py-2.5">
+          <div className="h-6 w-6 rounded-full bg-[var(--primary-blue)] flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 mt-0.5">
+            {entry.username.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-[var(--navy-dark)] leading-5">
+              <span className="font-semibold">{entry.username}</span>
+              {" changed "}
+              <span className="font-semibold">{FIELD_LABELS[entry.field] ?? entry.field}</span>
+              {entry.old_value && (
+                <>
+                  {" from "}
+                  <span className="font-mono text-[10px] bg-red-50 text-red-700 px-1 rounded">
+                    {entry.old_value}
+                  </span>
+                </>
+              )}
+              {entry.new_value && (
+                <>
+                  {" to "}
+                  <span className="font-mono text-[10px] bg-green-50 text-green-700 px-1 rounded">
+                    {entry.new_value}
+                  </span>
+                </>
+              )}
+            </p>
+            <p className="text-[10px] text-[var(--gray-text)] mt-0.5">
+              {new Date(entry.created_at).toLocaleDateString(undefined, {
+                month: "short", day: "numeric",
+                hour: "2-digit", minute: "2-digit",
+              })}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+

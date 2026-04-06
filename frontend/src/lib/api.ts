@@ -34,6 +34,32 @@ export type Card = {
   checklist_done?: number;
   assignee_id?: string | null;
   assignee_username?: string | null;
+  archived?: boolean;
+  estimated_hours?: number | null;
+  actual_hours?: number | null;
+  sprint_id?: string | null;
+  sprint_title?: string | null;
+};
+
+export type CardRelation = {
+  id: number;
+  card_id: string;
+  related_card_id: string;
+  related_card_title: string;
+  relation_type: string;
+  created_at: string;
+};
+
+export type SearchResultCard = {
+  id: string;
+  title: string;
+  details: string;
+  priority: string;
+  labels: string;
+  board_id: string;
+  board_title: string;
+  column_title: string;
+  archived: boolean;
 };
 
 export type ActivityEntry = {
@@ -166,11 +192,11 @@ export const changePassword = (current_password: string, new_password: string) =
 
 export const listBoards = () => apiFetch<BoardSummary[]>("/api/boards");
 
-export const createBoard = (title: string) =>
-  apiFetch<BoardSummary>("/api/boards", { method: "POST", body: JSON.stringify({ title }) });
+export const createBoard = (title: string, template?: string) =>
+  apiFetch<BoardSummary>("/api/boards", { method: "POST", body: JSON.stringify({ title, template }) });
 
-export const getBoard = (boardId: string) =>
-  apiFetch<BoardData>(`/api/boards/${boardId}`);
+export const getBoard = (boardId: string, include_archived = false) =>
+  apiFetch<BoardData>(`/api/boards/${boardId}${include_archived ? "?include_archived=true" : ""}`);
 
 export const updateBoard = (boardId: string, title: string) =>
   apiFetch(`/api/boards/${boardId}`, { method: "PUT", body: JSON.stringify({ title }) });
@@ -204,6 +230,9 @@ export const createCard = (params: {
   priority?: string;
   due_date?: string;
   labels?: string;
+  estimated_hours?: number | null;
+  actual_hours?: number | null;
+  sprint_id?: string | null;
 }) => apiFetch<Card>("/api/cards", { method: "POST", body: JSON.stringify(params) });
 
 export const updateCard = (
@@ -217,11 +246,44 @@ export const updateCard = (
     due_date?: string | null | undefined;
     labels?: string;
     assignee_id?: string | null;
+    estimated_hours?: number | null;
+    actual_hours?: number | null;
+    sprint_id?: string | null;
   }
 ) => apiFetch(`/api/cards/${cardId}`, { method: "PUT", body: JSON.stringify(params) });
 
 export const deleteCard = (cardId: string) =>
   apiFetch(`/api/cards/${cardId}`, { method: "DELETE" });
+
+export const archiveCard = (cardId: string) =>
+  apiFetch(`/api/cards/${cardId}/archive`, { method: "PUT" });
+
+export const restoreCard = (cardId: string) =>
+  apiFetch(`/api/cards/${cardId}/restore`, { method: "PUT" });
+
+export const copyCard = (cardId: string) =>
+  apiFetch<Card>(`/api/cards/${cardId}/copy`, { method: "POST" });
+
+// ── Card Relations ─────────────────────────────────────────────────────────────
+
+export const listRelations = (cardId: string) =>
+  apiFetch<CardRelation[]>(`/api/cards/${cardId}/relations`);
+
+export const addRelation = (cardId: string, related_card_id: string, relation_type: string) =>
+  apiFetch<CardRelation>(`/api/cards/${cardId}/relations`, {
+    method: "POST",
+    body: JSON.stringify({ related_card_id, relation_type }),
+  });
+
+export const deleteRelation = (cardId: string, relationId: number) =>
+  apiFetch(`/api/cards/${cardId}/relations/${relationId}`, { method: "DELETE" });
+
+// ── Search ─────────────────────────────────────────────────────────────────────
+
+export const searchCards = (q: string, include_archived = false) =>
+  apiFetch<SearchResultCard[]>(
+    `/api/search?q=${encodeURIComponent(q)}${include_archived ? "&include_archived=true" : ""}`
+  );
 
 // ── Comments ───────────────────────────────────────────────────────────────────
 
@@ -296,6 +358,145 @@ export const exportBoard = async (boardId: string, format: "json" | "csv") => {
 
 export const getBoardActivity = (boardId: string, limit = 50) =>
   apiFetch<ActivityEntry[]>(`/api/boards/${boardId}/activity?limit=${limit}`);
+
+// ── Sprints ────────────────────────────────────────────────────────────────────
+
+export type Sprint = {
+  id: string;
+  board_id: string;
+  title: string;
+  goal: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: "planning" | "active" | "completed";
+  created_at: string;
+  card_count?: number;
+  done_count?: number;
+};
+
+export const listSprints = (boardId: string) =>
+  apiFetch<Sprint[]>(`/api/boards/${boardId}/sprints`);
+
+export const createSprint = (
+  boardId: string,
+  params: { title: string; goal?: string; start_date?: string; end_date?: string }
+) =>
+  apiFetch<Sprint>(`/api/boards/${boardId}/sprints`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+
+export const getSprint = (sprintId: string) =>
+  apiFetch<Sprint>(`/api/sprints/${sprintId}`);
+
+export const updateSprint = (
+  sprintId: string,
+  params: { title?: string; goal?: string; start_date?: string | null; end_date?: string | null }
+) =>
+  apiFetch<Sprint>(`/api/sprints/${sprintId}`, {
+    method: "PUT",
+    body: JSON.stringify(params),
+  });
+
+export const deleteSprint = (sprintId: string) =>
+  apiFetch(`/api/sprints/${sprintId}`, { method: "DELETE" });
+
+export const startSprint = (sprintId: string) =>
+  apiFetch<Sprint>(`/api/sprints/${sprintId}/start`, { method: "POST" });
+
+export const completeSprint = (sprintId: string) =>
+  apiFetch<Sprint>(`/api/sprints/${sprintId}/complete`, { method: "POST" });
+
+// ── Analytics ──────────────────────────────────────────────────────────────────
+
+export type ColumnStats = {
+  column_id: string;
+  column_title: string;
+  total: number;
+  archived: number;
+};
+
+export type PriorityStats = {
+  priority: string;
+  count: number;
+};
+
+export type LabelStats = {
+  label: string;
+  count: number;
+};
+
+export type SprintProgress = {
+  sprint_id: string;
+  sprint_title: string;
+  status: string;
+  total_cards: number;
+  done_cards: number;
+  estimated_hours: number;
+  actual_hours: number;
+};
+
+export type BoardAnalytics = {
+  board_id: string;
+  total_cards: number;
+  archived_cards: number;
+  overdue_cards: number;
+  due_this_week: number;
+  by_column: ColumnStats[];
+  by_priority: PriorityStats[];
+  by_label: LabelStats[];
+  sprints: SprintProgress[];
+  avg_estimated_hours: number;
+  avg_actual_hours: number;
+};
+
+export const getBoardAnalytics = (boardId: string) =>
+  apiFetch<BoardAnalytics>(`/api/boards/${boardId}/analytics`);
+
+// ── Card Activity ──────────────────────────────────────────────────────────────
+
+export type CardActivityEntry = {
+  id: number;
+  card_id: string;
+  user_id: string;
+  username: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+};
+
+export const getCardActivity = (cardId: string, limit = 50) =>
+  apiFetch<CardActivityEntry[]>(`/api/cards/${cardId}/activity?limit=${limit}`);
+
+// ── Notifications ──────────────────────────────────────────────────────────────
+
+export type NotificationItem = {
+  card_id: string;
+  card_title: string;
+  board_id: string;
+  board_title: string;
+  column_title: string;
+  due_date: string;
+  type: "overdue" | "due_soon";
+};
+
+export const getNotifications = () =>
+  apiFetch<NotificationItem[]>("/api/notifications");
+
+// ── Bulk Operations ────────────────────────────────────────────────────────────
+
+export const bulkArchiveCards = (card_ids: string[]) =>
+  apiFetch<{ archived: number }>("/api/cards/bulk/archive", {
+    method: "POST",
+    body: JSON.stringify({ card_ids }),
+  });
+
+export const bulkUpdateCards = (card_ids: string[], updates: { column_id?: string; labels?: string }) =>
+  apiFetch<{ updated: number }>("/api/cards/bulk/update", {
+    method: "POST",
+    body: JSON.stringify({ card_ids, ...updates }),
+  });
 
 // ── AI Chat ────────────────────────────────────────────────────────────────────
 

@@ -19,6 +19,7 @@ export default function BoardsPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newTemplate, setNewTemplate] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const user = getUser();
@@ -47,9 +48,10 @@ export default function BoardsPage() {
     if (!newTitle.trim()) return;
     setCreating(true);
     try {
-      const board = await createBoard(newTitle.trim());
+      const board = await createBoard(newTitle.trim(), newTemplate || undefined);
       setBoards((prev) => [...prev, board]);
       setNewTitle("");
+      setNewTemplate("");
     } finally {
       setCreating(false);
     }
@@ -114,14 +116,24 @@ export default function BoardsPage() {
         </div>
 
         {/* Create board form */}
-        <form onSubmit={handleCreate} className="flex gap-3 mb-8">
+        <form onSubmit={handleCreate} className="flex flex-wrap gap-3 mb-8">
           <input
             type="text"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             placeholder="New board name..."
-            className="flex-1 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 px-4 py-3 text-sm focus:outline-none focus:border-[#209dd7] focus:ring-1 focus:ring-[#209dd7]"
+            className="flex-1 min-w-48 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 px-4 py-3 text-sm focus:outline-none focus:border-[#209dd7] focus:ring-1 focus:ring-[#209dd7]"
           />
+          <select
+            value={newTemplate}
+            onChange={(e) => setNewTemplate(e.target.value)}
+            className="rounded-xl bg-white/10 border border-white/20 text-white/80 px-3 py-3 text-sm focus:outline-none focus:border-[#209dd7] cursor-pointer"
+          >
+            <option value="">Default (3 columns)</option>
+            <option value="software">Software (Backlog → Done, 5 cols)</option>
+            <option value="marketing">Marketing (Ideas → Published, 5 cols)</option>
+            <option value="personal">Personal (To Do → Done, 3 cols)</option>
+          </select>
           <button
             type="submit"
             disabled={!newTitle.trim() || creating}
