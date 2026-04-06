@@ -24,6 +24,11 @@ type KanbanColumnProps = {
     order: number,
     updates: Partial<Card>
   ) => Promise<void>;
+  onArchiveCard?: (columnId: string, cardId: string) => void;
+  onCopyCard?: (columnId: string, cardId: string) => void;
+  selectable?: boolean;
+  selectedCardIds?: Set<string>;
+  onSelectCard?: (cardId: string, selected: boolean) => void;
 };
 
 export const KanbanColumn = ({
@@ -36,6 +41,11 @@ export const KanbanColumn = ({
   onDeleteCard,
   onDeleteColumn,
   onUpdateCard,
+  onArchiveCard,
+  onCopyCard,
+  selectable,
+  selectedCardIds,
+  onSelectCard,
 }: KanbanColumnProps) => {
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: column.id });
   const {
@@ -193,6 +203,11 @@ export const KanbanColumn = ({
               boardId={boardId}
               onDelete={(cardId) => onDeleteCard(column.id, cardId)}
               onUpdate={(updates) => onUpdateCard(card.id, column.id, idx, updates)}
+              onArchive={onArchiveCard ? (cardId) => onArchiveCard(column.id, cardId) : undefined}
+              onCopy={onCopyCard ? (cardId) => onCopyCard(column.id, cardId) : undefined}
+              selectable={selectable}
+              selected={selectedCardIds?.has(card.id)}
+              onSelect={onSelectCard}
             />
           ))}
         </SortableContext>

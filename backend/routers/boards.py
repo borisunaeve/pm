@@ -10,6 +10,21 @@ from backend.models import ActivityEntry, BoardData, BoardSummary, CardModel, Co
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
 
+# Board templates: list of (title, wip_limit) tuples
+BOARD_TEMPLATES: dict[str, list[tuple[str, int | None]]] = {
+    "software": [
+        ("Backlog", None), ("In Progress", 3), ("In Review", 2),
+        ("Testing", None), ("Done", None),
+    ],
+    "marketing": [
+        ("Ideas", None), ("Planning", None), ("In Production", 2),
+        ("Review", None), ("Published", None),
+    ],
+    "personal": [
+        ("To Do", None), ("Doing", 3), ("Done", None),
+    ],
+}
+
 
 def _assert_access(cursor, board_id: str, user_id: str):
     """Allow board owner OR member."""
@@ -36,7 +51,7 @@ def list_boards(current_user: dict = Depends(get_current_user)):
     cursor.execute(
         """
         SELECT b.id, b.title, b.created_at,
-               COUNT(c.id) as card_count
+               COUNT(CASE WHEN c.archived = 0 THEN 1 END) as card_count
         FROM boards b
         LEFT JOIN columns col ON col.board_id = b.id
         LEFT JOIN cards c ON c.column_id = col.id
@@ -67,11 +82,18 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
         (board_id, current_user["sub"], request.title.strip()),
     )
 
-    default_columns = [
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Backlog", 0, None),
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "In Progress", 1, None),
-        (f"col-{uuid.uuid4().hex[:8]}", board_id, "Done", 2, None),
-    ]
+    template_columns = BOARD_TEMPLATES.get(request.template or "", [])
+    if template_columns:
+        default_columns = [
+            (f"col-{uuid.uuid4().hex[:8]}", board_id, title, idx, wip)
+            for idx, (title, wip) in enumerate(template_columns)
+        ]
+    else:
+        default_columns = [
+            (f"col-{uuid.uuid4().hex[:8]}", board_id, "Backlog", 0, None),
+            (f"col-{uuid.uuid4().hex[:8]}", board_id, "In Progress", 1, None),
+            (f"col-{uuid.uuid4().hex[:8]}", board_id, "Done", 2, None),
+        ]
     cursor.executemany(
         "INSERT INTO columns (id, board_id, title, [order], wip_limit) VALUES (?, ?, ?, ?, ?)",
         default_columns,
@@ -85,7 +107,11 @@ def create_board(request: CreateBoardRequest, current_user: dict = Depends(get_c
 
 
 @router.get("/{board_id}", response_model=BoardData)
-def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
+def get_board(
+    board_id: str,
+    include_archived: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db_connection()
     cursor = conn.cursor()
     _assert_access(cursor, board_id, current_user["sub"])
@@ -98,24 +124,34 @@ def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
 
     columns = []
     cards_map = {}
+    archived_map = {}
+
+    archived_filter = "" if include_archived else "AND c.archived = 0"
 
     for row in columns_rows:
         col_id = row["id"]
         cursor.execute(
-            """SELECT c.id, c.title, c.details, c.priority, c.due_date, c.labels,
+            f"""SELECT c.id, c.title, c.details, c.priority, c.due_date, c.labels,
                       c.assignee_id, u.username as assignee_username,
+                      c.archived, c.estimated_hours, c.actual_hours,
+                      c.sprint_id, s.title as sprint_title,
                       (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id) as checklist_total,
                       (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id AND checked = 1) as checklist_done
                FROM cards c
                LEFT JOIN users u ON u.id = c.assignee_id
-               WHERE c.column_id = ? ORDER BY c.[order] ASC""",
+               LEFT JOIN sprints s ON s.id = c.sprint_id
+               WHERE c.column_id = ? {archived_filter} ORDER BY c.[order] ASC""",
             (col_id,),
         )
         cards_rows = cursor.fetchall()
         card_ids = []
         for c_row in cards_rows:
             card_id = c_row["id"]
-            card_ids.append(card_id)
+            is_archived = bool(c_row["archived"])
+            if not is_archived:
+                card_ids.append(card_id)
+            else:
+                archived_map[card_id] = True
             cards_map[card_id] = CardModel(
                 id=card_id,
                 title=c_row["title"],
@@ -127,6 +163,11 @@ def get_board(board_id: str, current_user: dict = Depends(get_current_user)):
                 checklist_done=c_row["checklist_done"],
                 assignee_id=c_row["assignee_id"],
                 assignee_username=c_row["assignee_username"],
+                archived=is_archived,
+                estimated_hours=c_row["estimated_hours"],
+                actual_hours=c_row["actual_hours"],
+                sprint_id=c_row["sprint_id"],
+                sprint_title=c_row["sprint_title"],
             )
         columns.append(ColumnModel(id=col_id, title=row["title"], cardIds=card_ids, wip_limit=row["wip_limit"]))
 

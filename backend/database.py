@@ -76,8 +76,40 @@ def init_db():
             due_date TEXT,
             labels TEXT DEFAULT '',
             assignee_id TEXT,
+            archived INTEGER NOT NULL DEFAULT 0,
+            estimated_hours REAL,
+            actual_hours REAL,
+            sprint_id TEXT,
             FOREIGN KEY(column_id) REFERENCES columns(id) ON DELETE CASCADE,
-            FOREIGN KEY(assignee_id) REFERENCES users(id) ON DELETE SET NULL
+            FOREIGN KEY(assignee_id) REFERENCES users(id) ON DELETE SET NULL,
+            FOREIGN KEY(sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_relations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id TEXT NOT NULL,
+            related_card_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL DEFAULT 'relates-to',
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(card_id, related_card_id, relation_type),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(related_card_id) REFERENCES cards(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sprints (
+            id TEXT PRIMARY KEY,
+            board_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT DEFAULT '',
+            start_date TEXT,
+            end_date TEXT,
+            status TEXT NOT NULL DEFAULT 'planning',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
         )
     """)
 
@@ -114,6 +146,20 @@ def init_db():
             entity_title TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_activity (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id   TEXT NOT NULL,
+            user_id   TEXT NOT NULL,
+            field     TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
@@ -159,6 +205,58 @@ def _migrate(conn):
         cursor.execute("ALTER TABLE cards ADD COLUMN labels TEXT DEFAULT ''")
     if "assignee_id" not in card_cols:
         cursor.execute("ALTER TABLE cards ADD COLUMN assignee_id TEXT REFERENCES users(id) ON DELETE SET NULL")
+    if "archived" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+    if "estimated_hours" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN estimated_hours REAL")
+    if "actual_hours" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN actual_hours REAL")
+    if "sprint_id" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id) ON DELETE SET NULL")
+
+    # sprints table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sprints (
+            id TEXT PRIMARY KEY,
+            board_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT DEFAULT '',
+            start_date TEXT,
+            end_date TEXT,
+            status TEXT NOT NULL DEFAULT 'planning',
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE
+        )
+    """)
+
+    # card_relations table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_relations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id TEXT NOT NULL,
+            related_card_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL DEFAULT 'relates-to',
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(card_id, related_card_id, relation_type),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(related_card_id) REFERENCES cards(id) ON DELETE CASCADE
+        )
+    """)
+
+    # card_activity table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_activity (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id   TEXT NOT NULL,
+            user_id   TEXT NOT NULL,
+            field     TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
 
     conn.commit()
 

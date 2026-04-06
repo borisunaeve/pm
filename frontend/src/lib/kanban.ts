@@ -9,6 +9,11 @@ export type Card = {
   checklist_done?: number;
   assignee_id?: string | null;
   assignee_username?: string | null;
+  archived?: boolean;
+  estimated_hours?: number | null;
+  actual_hours?: number | null;
+  sprint_id?: string | null;
+  sprint_title?: string | null;
 };
 
 export type Column = {
