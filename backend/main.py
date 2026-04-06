@@ -11,8 +11,9 @@ from backend.database import init_db
 from backend.routers import ai_chat, analytics, board, boards, bulk, cards, columns
 from backend.routers import auth as auth_router
 from backend.routers import (
-    checklist, comments, dashboard, export, notifications,
-    relations, search, sharing, sprints, watchers,
+    checklist, comments, dashboard, export, import_router, links,
+    notifications, relations, search, sharing, sprints,
+    subtasks, templates, user_activity, watchers,
 )
 
 
@@ -49,6 +50,11 @@ app.include_router(relations.router)
 app.include_router(search.router)
 app.include_router(sharing.router)
 app.include_router(sprints.router)
+app.include_router(import_router.router)
+app.include_router(links.router)
+app.include_router(subtasks.router)
+app.include_router(templates.router)
+app.include_router(user_activity.router)
 app.include_router(watchers.router)
 
 

@@ -46,12 +46,14 @@ type KanbanCardProps = {
   selectable?: boolean;
   selected?: boolean;
   onSelect?: (cardId: string, selected: boolean) => void;
+  forceOpenModal?: boolean;
+  onModalClose?: () => void;
 };
 
-export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCopy, selectable, selected, onSelect }: KanbanCardProps) => {
+export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCopy, selectable, selected, onSelect, forceOpenModal, onModalClose }: KanbanCardProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: card.id });
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(forceOpenModal ?? false);
   const [checklistCounts, setChecklistCounts] = useState({
     done: card.checklist_done ?? 0,
     total: card.checklist_total ?? 0,
@@ -79,8 +81,8 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCop
         ref={setNodeRef}
         style={style}
         className={clsx(
-          "rounded-2xl border bg-white px-4 py-3 shadow-[0_12px_24px_rgba(3,33,71,0.08)]",
-          "transition-all duration-150",
+          "rounded-2xl border bg-white shadow-[0_12px_24px_rgba(3,33,71,0.08)]",
+          "transition-all duration-150 overflow-hidden",
           dateStatus === "overdue" && "border-red-300 bg-red-50/40",
           dateStatus === "due-soon" && "border-amber-300",
           dateStatus !== "overdue" && dateStatus !== "due-soon" && "border-[var(--stroke)]",
@@ -90,6 +92,10 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCop
         {...listeners}
         data-testid={`card-${card.id}`}
       >
+        {card.color && (
+          <div className="h-1.5 w-full" style={{ backgroundColor: card.color }} />
+        )}
+        <div className="px-4 py-3">
         {selectable && (
           <div
             className="mb-2 -mt-1 flex items-center gap-2"
@@ -247,6 +253,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCop
             </button>
           </div>
         </div>
+        </div>
       </article>
 
       {editing && (
@@ -258,7 +265,7 @@ export const KanbanCard = ({ card, boardId, onDelete, onUpdate, onArchive, onCop
             await onUpdate(updates);
             setEditing(false);
           }}
-          onClose={() => setEditing(false)}
+          onClose={() => { setEditing(false); onModalClose?.(); }}
         />
       )}
     </>
@@ -276,7 +283,7 @@ type CardEditModalProps = {
   onChecklistChange: (done: number, total: number) => void;
 };
 
-type ModalTab = "details" | "checklist" | "comments" | "relations" | "activity";
+type ModalTab = "details" | "checklist" | "comments" | "subtasks" | "relations" | "activity" | "links";
 
 const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: CardEditModalProps) => {
   const [tab, setTab] = useState<ModalTab>("details");
@@ -291,6 +298,7 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
   const [estimatedHours, setEstimatedHours] = useState(card.estimated_hours != null ? String(card.estimated_hours) : "");
   const [actualHours, setActualHours] = useState(card.actual_hours != null ? String(card.actual_hours) : "");
   const [sprintId, setSprintId] = useState(card.sprint_id || "");
+  const [cardColor, setCardColor] = useState(card.color || "");
   const [members, setMembers] = useState<api.BoardMember[]>([]);
   const [sprints, setSprints] = useState<api.Sprint[]>([]);
   const [saving, setSaving] = useState(false);
@@ -301,6 +309,9 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
   const [activityCount, setActivityCount] = useState(0);
   const [watching, setWatching] = useState(false);
   const [watchLoading, setWatchLoading] = useState(false);
+  const [subtaskCount, setSubtaskCount] = useState(card.subtask_count ?? 0);
+  const [links, setLinks] = useState<api.CardLink[]>([]);
+  const [linkCount, setLinkCount] = useState(0);
 
   useEffect(() => {
     api.listMembers(boardId).then(setMembers).catch(() => {});
@@ -310,6 +321,8 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
     api.listRelations(card.id).then((rels) => setRelationCount(rels.length)).catch(() => {});
     api.getCardActivity(card.id).then((entries) => { setActivityEntries(entries); setActivityCount(entries.length); }).catch(() => {});
     api.getWatchStatus(card.id).then((s) => setWatching(s.watching)).catch(() => {});
+    api.listSubtasks(card.id).then((subs) => setSubtaskCount(subs.length)).catch(() => {});
+    api.getCardLinks(card.id).then((lks) => { setLinks(lks); setLinkCount(lks.length); }).catch(() => {});
   }, [boardId, card.id]);
 
   const handleToggleWatch = async () => {
@@ -341,6 +354,7 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
       estimated_hours: estimatedHours !== "" ? parseFloat(estimatedHours) : null,
       actual_hours: actualHours !== "" ? parseFloat(actualHours) : null,
       sprint_id: sprintId || null,
+      color: cardColor || null,
     });
     setSaving(false);
   };
@@ -366,8 +380,10 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
             { id: "details", label: "Details" },
             { id: "checklist", label: "Checklist", badge: checklistCount.total > 0 ? `${checklistCount.done}/${checklistCount.total}` : undefined },
             { id: "comments", label: "Comments", badge: commentCount > 0 ? String(commentCount) : undefined },
+            { id: "subtasks", label: "Sub-tasks", badge: subtaskCount > 0 ? String(subtaskCount) : undefined },
             { id: "relations", label: "Relations", badge: relationCount > 0 ? String(relationCount) : undefined },
           { id: "activity", label: "History", badge: activityCount > 0 ? String(activityCount) : undefined },
+          { id: "links", label: "Links", badge: linkCount > 0 ? String(linkCount) : undefined },
           ] as { id: ModalTab; label: string; badge?: string }[]).map((t) => (
             <button
               key={t.id}
@@ -522,6 +538,35 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
                   </select>
                 </div>
               </div>
+              {/* Card Color */}
+              <div>
+                <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-2">Card Color</label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {["", "#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4"].map((c) => (
+                    <button
+                      key={c || "none"}
+                      type="button"
+                      onClick={() => setCardColor(c)}
+                      title={c || "No color"}
+                      className={clsx(
+                        "rounded-full transition-all",
+                        cardColor === c ? "ring-2 ring-offset-2 ring-[var(--primary-blue)]" : "",
+                        c ? "w-6 h-6" : "w-6 h-6 border-2 border-dashed border-gray-300"
+                      )}
+                      style={c ? { backgroundColor: c } : {}}
+                    >
+                      {!c && <span className="text-[10px] text-gray-400 block text-center leading-5">✕</span>}
+                    </button>
+                  ))}
+                  <input
+                    type="color"
+                    value={cardColor || "#ffffff"}
+                    onChange={(e) => setCardColor(e.target.value)}
+                    title="Custom color"
+                    className="w-6 h-6 rounded-full border border-gray-200 cursor-pointer p-0 overflow-hidden"
+                  />
+                </div>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button
                   type="submit"
@@ -556,6 +601,14 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
             <CommentsTab cardId={card.id} onCountChange={setCommentCount} />
           )}
 
+          {tab === "subtasks" && (
+            <SubtasksTab
+              cardId={card.id}
+              boardId={boardId}
+              onCountChange={setSubtaskCount}
+            />
+          )}
+
           {tab === "relations" && (
             <RelationsTab
               cardId={card.id}
@@ -566,6 +619,14 @@ const CardEditModal = ({ card, boardId, onSave, onClose, onChecklistChange }: Ca
 
           {tab === "activity" && (
             <ActivityTab entries={activityEntries} />
+          )}
+
+          {tab === "links" && (
+            <LinksTab
+              cardId={card.id}
+              links={links}
+              onLinksChange={(lks) => { setLinks(lks); setLinkCount(lks.length); }}
+            />
           )}
         </div>
 
@@ -795,14 +856,25 @@ const CommentsTab = ({ cardId, onCountChange }: { cardId: string; onCountChange:
               <div className="flex-1 min-w-0">
                 <div className="rounded-2xl rounded-tl-sm bg-gray-50 px-4 py-3 relative">
                   <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                    <span className="text-xs font-bold text-[var(--navy-dark)]">{c.username}</span>
+                    <span className="text-xs font-bold text-[var(--navy-dark)]">
+                      {c.display_name || c.username}
+                      {c.display_name && c.display_name !== c.username && (
+                        <span className="ml-1 font-normal text-[var(--gray-text)]">@{c.username}</span>
+                      )}
+                    </span>
                     <span className="text-[10px] text-[var(--gray-text)] flex-shrink-0">
                       {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                       {" · "}
                       {new Date(c.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
-                  <p className="text-sm text-[var(--navy-dark)] whitespace-pre-wrap leading-relaxed">{c.content}</p>
+                  <p className="text-sm text-[var(--navy-dark)] whitespace-pre-wrap leading-relaxed">
+                    {c.content.split(/(@\w+)/g).map((part, i) =>
+                      /^@\w+$/.test(part)
+                        ? <span key={i} className="text-[var(--primary-blue)] font-medium">{part}</span>
+                        : part
+                    )}
+                  </p>
                   {currentUser?.id === c.user_id && (
                     <button
                       type="button"
@@ -833,7 +905,7 @@ const CommentsTab = ({ cardId, onCountChange }: { cardId: string; onCountChange:
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handlePost(e as unknown as React.FormEvent); } }}
-            placeholder="Write a comment... (Ctrl+Enter to post)"
+            placeholder="Write a comment... Use @username to mention. (Ctrl+Enter to post)"
             rows={2}
             className="w-full border border-[var(--stroke)] rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] bg-[var(--surface-strong)] outline-none focus:border-[var(--primary-blue)] resize-none"
           />
@@ -846,6 +918,111 @@ const CommentsTab = ({ cardId, onCountChange }: { cardId: string; onCountChange:
           </button>
         </div>
       </form>
+    </div>
+  );
+};
+
+
+// ── Subtasks Tab ──────────────────────────────────────────────────────────────
+
+const PRIORITY_DOT: Record<string, string> = {
+  high: "bg-red-400",
+  medium: "bg-amber-400",
+  low: "bg-green-400",
+};
+
+const SubtasksTab = ({
+  cardId,
+  boardId,
+  onCountChange,
+}: {
+  cardId: string;
+  boardId: string;
+  onCountChange: (n: number) => void;
+}) => {
+  const [subtasks, setSubtasks] = useState<api.Card[]>([]);
+  const [newTitle, setNewTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.listSubtasks(cardId).then((items) => {
+      setSubtasks(items);
+      onCountChange(items.length);
+    }).catch(() => {});
+  }, [cardId, onCountChange]);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) return;
+    setAdding(true);
+    setError("");
+    try {
+      const sub = await api.createSubtask(cardId, { title: newTitle.trim() });
+      const next = [...subtasks, sub];
+      setSubtasks(next);
+      onCountChange(next.length);
+      setNewTitle("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create sub-task");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleArchive = async (subId: string) => {
+    await api.archiveCard(subId).catch(() => {});
+    const next = subtasks.filter((s) => s.id !== subId);
+    setSubtasks(next);
+    onCountChange(next.length);
+  };
+
+  return (
+    <div className="space-y-3">
+      {subtasks.length === 0 ? (
+        <p className="text-sm text-[var(--gray-text)] italic py-2">No sub-tasks yet.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {subtasks.map((sub) => (
+            <li key={sub.id} className="flex items-center gap-2 group rounded-lg border border-[var(--stroke)] px-3 py-2 bg-gray-50/50">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[sub.priority ?? "medium"] ?? PRIORITY_DOT.medium}`} />
+              <span className="flex-1 text-sm text-[var(--navy-dark)] truncate">{sub.title}</span>
+              {sub.due_date && (
+                <span className="text-[10px] text-[var(--gray-text)] shrink-0">{sub.due_date}</span>
+              )}
+              {sub.assignee_username && (
+                <span className="text-[10px] text-[var(--gray-text)] shrink-0">@{sub.assignee_username}</span>
+              )}
+              <button
+                type="button"
+                onClick={() => handleArchive(sub.id)}
+                className="opacity-0 group-hover:opacity-100 text-[var(--gray-text)] hover:text-red-500 transition-all text-xs"
+                aria-label="Remove sub-task"
+              >
+                &times;
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={handleAdd} className="flex gap-2 pt-1">
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder="Add a sub-task..."
+          className="flex-1 text-sm border border-[var(--stroke)] rounded-lg px-3 py-1.5 focus:outline-none focus:border-[var(--primary-blue)]"
+        />
+        <button
+          type="submit"
+          disabled={!newTitle.trim() || adding}
+          className="text-sm px-3 py-1.5 rounded-lg bg-[var(--primary-blue)] text-white disabled:opacity-50 hover:bg-[#1a87ba] transition-colors"
+        >
+          Add
+        </button>
+      </form>
+      {error && <p className="text-xs text-red-500">{error}</p>}
     </div>
   );
 };
@@ -1067,6 +1244,126 @@ const ActivityTab = ({ entries }: { entries: api.CardActivityEntry[] }) => {
           </div>
         </div>
       ))}
+    </div>
+  );
+};
+
+
+// ── Links Tab ──────────────────────────────────────────────────────────────────
+
+const LinksTab = ({
+  cardId,
+  links,
+  onLinksChange,
+}: {
+  cardId: string;
+  links: api.CardLink[];
+  onLinksChange: (links: api.CardLink[]) => void;
+}) => {
+  const [url, setUrl] = useState("");
+  const [linkTitle, setLinkTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    setSaving(true);
+    try {
+      const lk = await api.createCardLink(cardId, url.trim(), linkTitle.trim());
+      onLinksChange([...links, lk]);
+      setUrl("");
+      setLinkTitle("");
+      setAdding(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (linkId: number) => {
+    await api.deleteCardLink(cardId, linkId);
+    onLinksChange(links.filter((l) => l.id !== linkId));
+  };
+
+  return (
+    <div className="space-y-3">
+      {links.length === 0 && !adding && (
+        <p className="py-6 text-center text-sm text-[var(--gray-text)] italic">No links yet.</p>
+      )}
+      {links.map((lk) => (
+        <div key={lk.id} className="flex items-center gap-3 rounded-xl border border-[var(--stroke)] px-3 py-2.5 group">
+          <div className="flex-1 min-w-0">
+            {lk.title && (
+              <p className="text-xs font-semibold text-[var(--navy-dark)] truncate">{lk.title}</p>
+            )}
+            <a
+              href={lk.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[var(--primary-blue)] hover:underline truncate block"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {lk.url}
+            </a>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleDelete(lk.id)}
+            className="text-[var(--gray-text)] hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+            aria-label="Remove link"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6l-1 14H6L5 6"></path>
+              <path d="M10 11v6M14 11v6"></path>
+            </svg>
+          </button>
+        </div>
+      ))}
+      {adding ? (
+        <form onSubmit={handleAdd} className="space-y-2 rounded-xl border border-[var(--stroke)] p-3">
+          <input
+            autoFocus
+            type="text"
+            placeholder="Label (optional)"
+            value={linkTitle}
+            onChange={(e) => setLinkTitle(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+          />
+          <input
+            type="url"
+            placeholder="https://..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            required
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving || !url.trim()}
+              className="flex-1 bg-[var(--primary-blue)] text-white rounded-xl py-2 text-xs font-semibold hover:brightness-110 disabled:opacity-60"
+            >
+              {saving ? "Adding..." : "Add Link"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAdding(false); setUrl(""); setLinkTitle(""); }}
+              className="rounded-xl border border-gray-200 px-3 py-2 text-xs text-[var(--gray-text)] hover:text-[var(--navy-dark)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="w-full rounded-xl border-2 border-dashed border-[var(--stroke)] py-3 text-xs font-semibold text-[var(--gray-text)] hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)] transition"
+        >
+          + Add Link
+        </button>
+      )}
     </div>
   );
 };

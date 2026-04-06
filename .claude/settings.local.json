@@ -33,7 +33,15 @@
       "Bash(curl -s http://localhost:8000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"username\":\"user\",\"password\":\"password\"}')",
       "Bash(git rm:*)",
       "Bash(git commit:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(curl -s http://localhost:8000/api/boards)",
+      "Bash(docker info:*)",
+      "Bash(docker context ls:*)",
+      "Bash(docker context:*)",
+      "Bash(tasklist)",
+      "Bash(findstr /i docker)",
+      "Skill(ralph-loop:cancel-ralph)",
+      "mcp__massive__get_snapshot_ticker"
     ]
   }
 }

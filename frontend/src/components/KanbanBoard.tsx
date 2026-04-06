@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -23,6 +23,9 @@ import { AnalyticsPanel } from "@/components/AnalyticsPanel";
 import { moveCard, type BoardData, type Column } from "@/lib/kanban";
 import * as api from "@/lib/api";
 import { FilterBar, type FilterState } from "@/components/FilterBar";
+import { BoardListView } from "@/components/BoardListView";
+import { SwimlanesView } from "@/components/SwimlanesView";
+import { CalendarView } from "@/components/CalendarView";
 import clsx from "clsx";
 
 type KanbanBoardProps = {
@@ -83,6 +86,92 @@ function ActivityFeed({ boardId, onClose }: { boardId: string; onClose: () => vo
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Import Dialog ──────────────────────────────────────────────────────────────
+
+function ImportDialog({ boardId, columns, onClose, onDone }: {
+  boardId: string;
+  columns: { id: string; title: string }[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [csvText, setCsvText] = useState("");
+  const [columnId, setColumnId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
+
+  const handleImport = async () => {
+    if (!csvText.trim()) return;
+    setLoading(true);
+    try {
+      const r = await api.importCSV(boardId, csvText, columnId || undefined);
+      setResult(r);
+      onDone();
+    } catch {
+      setResult({ created: 0, skipped: 0, errors: ["Import failed — check your CSV format."] });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col gap-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-display font-semibold text-[var(--navy-dark)] text-lg">Import Cards from CSV</h3>
+          <button type="button" onClick={onClose} className="text-[var(--gray-text)] hover:text-[var(--navy-dark)] text-sm">Close</button>
+        </div>
+        <p className="text-xs text-[var(--gray-text)]">
+          CSV must have a <code className="bg-gray-100 px-1 rounded">title</code> column. Optional: <code className="bg-gray-100 px-1 rounded">priority</code>, <code className="bg-gray-100 px-1 rounded">due_date</code>, <code className="bg-gray-100 px-1 rounded">labels</code>, <code className="bg-gray-100 px-1 rounded">details</code>.
+        </p>
+        <div>
+          <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">Target Column</label>
+          <select
+            value={columnId}
+            onChange={(e) => setColumnId(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+          >
+            <option value="">First column (default)</option>
+            {columns.map((c) => (
+              <option key={c.id} value={c.id}>{c.title}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[var(--gray-text)] uppercase tracking-wide block mb-1">CSV Content</label>
+          <textarea
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            rows={8}
+            placeholder={"title,priority,due_date,labels\nFix login bug,high,2024-12-31,backend\nUpdate docs,low,,docs"}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)] resize-none"
+          />
+        </div>
+        {result && (
+          <div className={clsx("rounded-xl px-4 py-3 text-sm", result.errors.length > 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700")}>
+            {result.errors.length > 0
+              ? result.errors.join("; ")
+              : `Created ${result.created} card${result.created !== 1 ? "s" : ""}${result.skipped > 0 ? `, skipped ${result.skipped}` : ""}.`
+            }
+          </div>
+        )}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={loading || !csvText.trim()}
+            className="flex-1 bg-[var(--primary-blue)] text-white rounded-xl py-2.5 text-sm font-semibold hover:brightness-110 disabled:opacity-60 transition"
+          >
+            {loading ? "Importing..." : "Import"}
+          </button>
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm text-[var(--gray-text)] hover:text-[var(--navy-dark)]">
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -261,6 +350,7 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
   const [showSearch, setShowSearch] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [showSprints, setShowSprints] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<api.NotificationItem[]>([]);
@@ -268,6 +358,8 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"kanban" | "list" | "swimlanes" | "calendar">("kanban");
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
   const [dark, setDark] = useDarkMode();
 
   const sensors = useSensors(
@@ -682,6 +774,21 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
                 </div>
               </div>
 
+              {/* Import */}
+              <button
+                type="button"
+                onClick={() => setShowImport(true)}
+                title="Import cards from CSV"
+                className="rounded-xl border border-[var(--stroke)] bg-white px-3 py-2 text-sm font-semibold text-[var(--navy-dark)] hover:bg-gray-50 transition flex items-center gap-1.5"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Import
+              </button>
+
               {/* Activity */}
               <button
                 type="button"
@@ -921,6 +1028,49 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
                 Analytics
               </button>
 
+              {/* View toggle */}
+              <div className="flex rounded-xl border border-[var(--stroke)] overflow-hidden bg-white">
+                {([
+                  { id: "kanban", title: "Kanban", icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="5" height="15" rx="1"/>
+                    </svg>
+                  )},
+                  { id: "swimlanes", title: "Swimlanes", icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                  )},
+                  { id: "list", title: "List", icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                      <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                  )},
+                  { id: "calendar", title: "Calendar", icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                  )},
+                ] as { id: "kanban" | "list" | "swimlanes" | "calendar"; title: string; icon: React.ReactNode }[]).map((v, i) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setViewMode(v.id)}
+                    title={v.title}
+                    className={clsx(
+                      "px-3 py-2 text-sm font-semibold transition flex items-center gap-1.5",
+                      i > 0 && "border-l border-[var(--stroke)]",
+                      viewMode === v.id
+                        ? "bg-[var(--primary-blue)] text-white"
+                        : "text-[var(--navy-dark)] hover:bg-gray-50"
+                    )}
+                  >
+                    {v.icon}
+                  </button>
+                ))}
+              </div>
+
               {/* Shortcuts */}
               <button
                 type="button"
@@ -967,7 +1117,101 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
 
         <AIChatSidebar boardId={boardId} onRefreshBoard={() => fetchBoard(showArchived)} />
 
-        <DndContext
+        {/* List view */}
+        {viewMode === "list" && (
+          <>
+            <BoardListView
+              board={board}
+              filters={filter}
+              onCardClick={(cardId) => setOpenCardId(cardId)}
+            />
+            {openCardId && board.cards[openCardId] && (
+              <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={() => {}} onDragEnd={() => {}}>
+                <KanbanCard
+                  key={openCardId}
+                  card={board.cards[openCardId]}
+                  boardId={boardId}
+                  onDelete={async (cardId) => {
+                    await api.deleteCard(cardId);
+                    setOpenCardId(null);
+                    fetchBoard(showArchived);
+                  }}
+                  onUpdate={async (updates) => {
+                    const col = board.columns.find((c) => c.cardIds.includes(openCardId));
+                    const order = col ? col.cardIds.indexOf(openCardId) : 0;
+                    await api.updateCard(openCardId, { column_id: col?.id ?? "", order, ...updates });
+                    setBoard((prev) =>
+                      prev ? { ...prev, cards: { ...prev.cards, [openCardId]: { ...prev.cards[openCardId], ...updates } } } : null
+                    );
+                  }}
+                  forceOpenModal
+                  onModalClose={() => setOpenCardId(null)}
+                />
+              </DndContext>
+            )}
+          </>
+        )}
+
+        {/* Swimlanes view */}
+        {viewMode === "swimlanes" && (
+          <>
+            <SwimlanesView
+              board={board}
+              filters={filter}
+              onCardClick={(cardId) => setOpenCardId(cardId)}
+            />
+            {openCardId && board.cards[openCardId] && (
+              <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={() => {}} onDragEnd={() => {}}>
+                <KanbanCard
+                  key={openCardId}
+                  card={board.cards[openCardId]}
+                  boardId={boardId}
+                  onDelete={async (cardId) => { await api.deleteCard(cardId); setOpenCardId(null); fetchBoard(showArchived); }}
+                  onUpdate={async (updates) => {
+                    const col = board.columns.find((c) => c.cardIds.includes(openCardId));
+                    const order = col ? col.cardIds.indexOf(openCardId) : 0;
+                    await api.updateCard(openCardId, { column_id: col?.id ?? "", order, ...updates });
+                    setBoard((prev) => prev ? { ...prev, cards: { ...prev.cards, [openCardId]: { ...prev.cards[openCardId], ...updates } } } : null);
+                  }}
+                  forceOpenModal
+                  onModalClose={() => setOpenCardId(null)}
+                />
+              </DndContext>
+            )}
+          </>
+        )}
+
+        {/* Calendar view */}
+        {viewMode === "calendar" && (
+          <>
+            <CalendarView
+              board={board}
+              filters={filter}
+              onCardClick={(cardId) => setOpenCardId(cardId)}
+            />
+            {openCardId && board.cards[openCardId] && (
+              <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={() => {}} onDragEnd={() => {}}>
+                <KanbanCard
+                  key={openCardId}
+                  card={board.cards[openCardId]}
+                  boardId={boardId}
+                  onDelete={async (cardId) => { await api.deleteCard(cardId); setOpenCardId(null); fetchBoard(showArchived); }}
+                  onUpdate={async (updates) => {
+                    const col = board.columns.find((c) => c.cardIds.includes(openCardId));
+                    const order = col ? col.cardIds.indexOf(openCardId) : 0;
+                    await api.updateCard(openCardId, { column_id: col?.id ?? "", order, ...updates });
+                    setBoard((prev) => prev ? { ...prev, cards: { ...prev.cards, [openCardId]: { ...prev.cards[openCardId], ...updates } } } : null);
+                  }}
+                  forceOpenModal
+                  onModalClose={() => setOpenCardId(null)}
+                />
+              </DndContext>
+            )}
+          </>
+        )}
+
+        {/* Kanban view */}
+        {viewMode === "kanban" && <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
           onDragStart={handleDragStart}
@@ -1015,7 +1259,7 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
               </div>
             ) : null}
           </DragOverlay>
-        </DndContext>
+        </DndContext>}
 
         {/* Bulk action toolbar */}
         {multiSelectMode && selectedCardIds.size > 0 && (
@@ -1089,6 +1333,14 @@ export const KanbanBoard = ({ boardId }: KanbanBoardProps) => {
         <AnalyticsPanel
           boardId={boardId}
           onClose={() => setShowAnalytics(false)}
+        />
+      )}
+      {showImport && (
+        <ImportDialog
+          boardId={boardId}
+          columns={board.columns}
+          onClose={() => setShowImport(false)}
+          onDone={() => { fetchBoard(showArchived); }}
         />
       )}
     </div>

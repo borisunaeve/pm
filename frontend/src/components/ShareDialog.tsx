@@ -41,6 +41,11 @@ export const ShareDialog = ({ boardId, onClose }: Props) => {
     setMembers((prev) => prev.filter((m) => m.user_id !== userId));
   };
 
+  const handleRoleChange = async (userId: string, role: "viewer" | "member") => {
+    await api.updateMemberRole(boardId, userId, role);
+    setMembers((prev) => prev.map((m) => m.user_id === userId ? { ...m, role } : m));
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
@@ -79,17 +84,24 @@ export const ShareDialog = ({ boardId, onClose }: Props) => {
           <ul className="space-y-2 max-h-48 overflow-y-auto">
             {members.map((m) => (
               <li key={m.user_id} className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-2">
-                <div>
-                  <span className="text-sm font-semibold text-[var(--navy-dark)]">{m.username}</span>
-                  <span className="ml-2 text-xs text-[var(--gray-text)] capitalize">{m.role}</span>
+                <span className="text-sm font-semibold text-[var(--navy-dark)]">{m.username}</span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={m.role}
+                    onChange={(e) => handleRoleChange(m.user_id, e.target.value as "viewer" | "member")}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-[var(--gray-text)] outline-none focus:border-[var(--primary-blue)] bg-white"
+                  >
+                    <option value="member">Member</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(m.user_id)}
+                    className="text-xs text-[var(--gray-text)] hover:text-red-500 transition"
+                  >
+                    Remove
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemove(m.user_id)}
-                  className="text-xs text-[var(--gray-text)] hover:text-red-500 transition"
-                >
-                  Remove
-                </button>
               </li>
             ))}
           </ul>

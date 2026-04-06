@@ -25,6 +25,8 @@ export type BoardSummary = {
   created_at: string | null;
   card_count: number;
   member_count: number;
+  is_favorite: boolean;
+  archived: boolean;
 };
 
 export type DashboardCard = {
@@ -83,6 +85,9 @@ export type Card = {
   actual_hours?: number | null;
   sprint_id?: string | null;
   sprint_title?: string | null;
+  parent_card_id?: string | null;
+  subtask_count?: number;
+  color?: string | null;
 };
 
 export type CardRelation = {
@@ -136,6 +141,7 @@ export type Comment = {
   card_id: string;
   user_id: string;
   username: string;
+  display_name: string;
   content: string;
   created_at: string;
 };
@@ -240,13 +246,26 @@ export const changePassword = (current_password: string, new_password: string) =
 
 // ── Boards ─────────────────────────────────────────────────────────────────────
 
-export const listBoards = () => apiFetch<BoardSummary[]>("/api/boards");
+export const listBoards = (include_archived = false) =>
+  apiFetch<BoardSummary[]>(`/api/boards${include_archived ? "?include_archived=true" : ""}`);
 
 export const createBoard = (title: string, template?: string, description?: string, color?: string) =>
   apiFetch<BoardSummary>("/api/boards", {
     method: "POST",
     body: JSON.stringify({ title, template, description, color }),
   });
+
+export const archiveBoard = (boardId: string) =>
+  apiFetch(`/api/boards/${boardId}/archive`, { method: "POST" });
+
+export const restoreBoard = (boardId: string) =>
+  apiFetch(`/api/boards/${boardId}/restore`, { method: "POST" });
+
+export const favoriteBoard = (boardId: string) =>
+  apiFetch(`/api/boards/${boardId}/favorite`, { method: "POST" });
+
+export const unfavoriteBoard = (boardId: string) =>
+  apiFetch(`/api/boards/${boardId}/favorite`, { method: "DELETE" });
 
 export const getBoard = (boardId: string, include_archived = false) =>
   apiFetch<BoardData>(`/api/boards/${boardId}${include_archived ? "?include_archived=true" : ""}`);
@@ -305,6 +324,7 @@ export const updateCard = (
     estimated_hours?: number | null;
     actual_hours?: number | null;
     sprint_id?: string | null;
+    color?: string | null;
   }
 ) => apiFetch(`/api/cards/${cardId}`, { method: "PUT", body: JSON.stringify(params) });
 
@@ -319,6 +339,20 @@ export const restoreCard = (cardId: string) =>
 
 export const copyCard = (cardId: string) =>
   apiFetch<Card>(`/api/cards/${cardId}/copy`, { method: "POST" });
+
+// ── Subtasks ──────────────────────────────────────────────────────────────────
+
+export const listSubtasks = (cardId: string) =>
+  apiFetch<Card[]>(`/api/cards/${cardId}/subtasks`);
+
+export const createSubtask = (
+  cardId: string,
+  params: { title: string; details?: string; priority?: string; due_date?: string | null; assignee_id?: string | null }
+) =>
+  apiFetch<Card>(`/api/cards/${cardId}/subtasks`, {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 
 // ── Card Relations ─────────────────────────────────────────────────────────────
 
@@ -588,6 +622,77 @@ export const bulkUpdateCards = (card_ids: string[], updates: { column_id?: strin
     method: "POST",
     body: JSON.stringify({ card_ids, ...updates }),
   });
+
+// ── Board Templates ────────────────────────────────────────────────────────────
+
+export type BoardTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  columns: string[];
+};
+
+export const getTemplates = () => apiFetch<BoardTemplate[]>("/api/templates");
+
+// ── Card Links ─────────────────────────────────────────────────────────────────
+
+export type CardLink = {
+  id: number;
+  card_id: string;
+  title: string;
+  url: string;
+  created_at: string;
+};
+
+export const getCardLinks = (cardId: string) =>
+  apiFetch<CardLink[]>(`/api/cards/${cardId}/links`);
+
+export const createCardLink = (cardId: string, url: string, title?: string) =>
+  apiFetch<CardLink>(`/api/cards/${cardId}/links`, {
+    method: "POST",
+    body: JSON.stringify({ url, title: title || "" }),
+  });
+
+export const deleteCardLink = (cardId: string, linkId: number) =>
+  apiFetch(`/api/cards/${cardId}/links/${linkId}`, { method: "DELETE" });
+
+// ── CSV Import ─────────────────────────────────────────────────────────────────
+
+export type ImportResult = {
+  created: number;
+  skipped: number;
+  errors: string[];
+};
+
+export const importCSV = (boardId: string, csvText: string, columnId?: string) =>
+  apiFetch<ImportResult>(`/api/boards/${boardId}/import`, {
+    method: "POST",
+    body: JSON.stringify({ csv_text: csvText, column_id: columnId || "" }),
+  });
+
+// ── Member Role ─────────────────────────────────────────────────────────────────
+
+export const updateMemberRole = (boardId: string, userId: string, role: "viewer" | "member") =>
+  apiFetch(`/api/boards/${boardId}/members/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify({ role }),
+  });
+
+// ── User Activity ──────────────────────────────────────────────────────────────
+
+export type UserActivityItem = {
+  id: number;
+  board_id: string;
+  board_title: string;
+  action: string;
+  entity_type: string;
+  entity_title: string | null;
+  created_at: string;
+};
+
+export const getMyActivity = (limit = 50) =>
+  apiFetch<UserActivityItem[]>(`/api/users/me/activity?limit=${limit}`);
 
 // ── AI Chat ────────────────────────────────────────────────────────────────────
 

@@ -14,6 +14,9 @@ export type Card = {
   actual_hours?: number | null;
   sprint_id?: string | null;
   sprint_title?: string | null;
+  parent_card_id?: string | null;
+  subtask_count?: number;
+  color?: string | null;
 };
 
 export type Column = {

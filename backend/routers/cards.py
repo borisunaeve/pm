@@ -82,11 +82,12 @@ def create_card(request: CreateCardRequest, current_user: dict = Depends(get_cur
 
     cursor.execute(
         """INSERT INTO cards
-           (id, column_id, title, details, [order], priority, due_date, labels, assignee_id, estimated_hours, actual_hours, sprint_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (id, column_id, title, details, [order], priority, due_date, labels, assignee_id, estimated_hours, actual_hours, sprint_id, color)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (new_id, request.column_id, request.title, request.details, next_order,
          request.priority or "medium", request.due_date, request.labels or "",
-         request.assignee_id, request.estimated_hours, request.actual_hours, request.sprint_id),
+         request.assignee_id, request.estimated_hours, request.actual_hours, request.sprint_id,
+         request.color),
     )
 
     board_id = _get_board_id_for_column(cursor, request.column_id)
@@ -128,6 +129,9 @@ def create_card(request: CreateCardRequest, current_user: dict = Depends(get_cur
         "estimated_hours": request.estimated_hours,
         "actual_hours": request.actual_hours,
         "sprint_id": request.sprint_id,
+        "parent_card_id": request.parent_card_id,
+        "subtask_count": 0,
+        "color": request.color,
     }
 
 
@@ -175,6 +179,12 @@ def update_card(
     if request.sprint_id is not None:
         updates.append("sprint_id = ?")
         params.append(request.sprint_id if request.sprint_id != "" else None)
+    if request.parent_card_id is not None:
+        updates.append("parent_card_id = ?")
+        params.append(request.parent_card_id if request.parent_card_id != "" else None)
+    if request.color is not None:
+        updates.append("color = ?")
+        params.append(request.color if request.color != "" else None)
 
     updates.append("column_id = ?")
     params.append(request.column_id)

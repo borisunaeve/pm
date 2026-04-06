@@ -45,23 +45,27 @@ def _assert_owner(cursor, board_id: str, user_id: str):
 
 
 @router.get("", response_model=List[BoardSummary])
-def list_boards(current_user: dict = Depends(get_current_user)):
+def list_boards(include_archived: bool = False, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
+    archived_filter = "" if include_archived else "AND b.archived = 0"
     cursor.execute(
-        """
-        SELECT b.id, b.title, b.description, b.color, b.created_at,
+        f"""
+        SELECT b.id, b.title, b.description, b.color, b.created_at, b.archived,
                COUNT(DISTINCT CASE WHEN c.archived = 0 THEN c.id END) as card_count,
-               COUNT(DISTINCT bm.user_id) as member_count
+               COUNT(DISTINCT bm.user_id) as member_count,
+               CASE WHEN bf.board_id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
         FROM boards b
         LEFT JOIN columns col ON col.board_id = b.id
         LEFT JOIN cards c ON c.column_id = col.id
         LEFT JOIN board_members bm ON bm.board_id = b.id
-        WHERE b.user_id = ? OR b.id IN (SELECT board_id FROM board_members WHERE user_id = ?)
+        LEFT JOIN board_favorites bf ON bf.board_id = b.id AND bf.user_id = ?
+        WHERE (b.user_id = ? OR b.id IN (SELECT board_id FROM board_members WHERE user_id = ?))
+          {archived_filter}
         GROUP BY b.id
-        ORDER BY b.created_at ASC
+        ORDER BY is_favorite DESC, b.created_at ASC
         """,
-        (current_user["sub"], current_user["sub"]),
+        (current_user["sub"], current_user["sub"], current_user["sub"]),
     )
     rows = cursor.fetchall()
     conn.close()
@@ -70,6 +74,7 @@ def list_boards(current_user: dict = Depends(get_current_user)):
             id=r["id"], title=r["title"], created_at=r["created_at"],
             card_count=r["card_count"], description=r["description"] or "",
             color=r["color"], member_count=r["member_count"],
+            is_favorite=bool(r["is_favorite"]), archived=bool(r["archived"]),
         )
         for r in rows
     ]
@@ -145,8 +150,10 @@ def get_board(
                       c.assignee_id, u.username as assignee_username,
                       c.archived, c.estimated_hours, c.actual_hours,
                       c.sprint_id, s.title as sprint_title,
+                      c.parent_card_id, c.color,
                       (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id) as checklist_total,
-                      (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id AND checked = 1) as checklist_done
+                      (SELECT COUNT(*) FROM checklist_items WHERE card_id = c.id AND checked = 1) as checklist_done,
+                      (SELECT COUNT(*) FROM cards sub WHERE sub.parent_card_id = c.id AND sub.archived = 0) as subtask_count
                FROM cards c
                LEFT JOIN users u ON u.id = c.assignee_id
                LEFT JOIN sprints s ON s.id = c.sprint_id
@@ -178,6 +185,9 @@ def get_board(
                 actual_hours=c_row["actual_hours"],
                 sprint_id=c_row["sprint_id"],
                 sprint_title=c_row["sprint_title"],
+                parent_card_id=c_row["parent_card_id"],
+                subtask_count=c_row["subtask_count"],
+                color=c_row["color"],
             )
         columns.append(ColumnModel(id=col_id, title=row["title"], cardIds=card_ids, wip_limit=row["wip_limit"]))
 
@@ -216,6 +226,55 @@ def delete_board(board_id: str, current_user: dict = Depends(get_current_user)):
     cursor = conn.cursor()
     _assert_owner(cursor, board_id, current_user["sub"])
     cursor.execute("DELETE FROM boards WHERE id = ?", (board_id,))
+    conn.commit()
+    conn.close()
+
+
+@router.post("/{board_id}/archive", status_code=200)
+def archive_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_owner(cursor, board_id, current_user["sub"])
+    cursor.execute("UPDATE boards SET archived = 1 WHERE id = ?", (board_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "archived"}
+
+
+@router.post("/{board_id}/restore", status_code=200)
+def restore_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_owner(cursor, board_id, current_user["sub"])
+    cursor.execute("UPDATE boards SET archived = 0 WHERE id = ?", (board_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "restored"}
+
+
+@router.post("/{board_id}/favorite", status_code=201)
+def favorite_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_access(cursor, board_id, current_user["sub"])
+    cursor.execute(
+        "INSERT OR IGNORE INTO board_favorites (board_id, user_id) VALUES (?, ?)",
+        (board_id, current_user["sub"]),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "favorited"}
+
+
+@router.delete("/{board_id}/favorite", status_code=204)
+def unfavorite_board(board_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_access(cursor, board_id, current_user["sub"])
+    cursor.execute(
+        "DELETE FROM board_favorites WHERE board_id = ? AND user_id = ?",
+        (board_id, current_user["sub"]),
+    )
     conn.commit()
     conn.close()
 

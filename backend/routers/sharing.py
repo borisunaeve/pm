@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth import get_current_user
 from backend.database import get_db_connection
-from backend.models import BoardMember, ShareBoardRequest
+from backend.models import BoardMember, ShareBoardRequest, UpdateMemberRoleRequest
 
 router = APIRouter(prefix="/api/boards", tags=["sharing"])
 
@@ -70,6 +70,34 @@ def add_member(
     conn.commit()
     conn.close()
     return {"status": "success", "user_id": target["id"], "username": request.username}
+
+
+@router.put("/{board_id}/members/{user_id}", status_code=200)
+def update_member_role(
+    board_id: str,
+    user_id: str,
+    request: UpdateMemberRoleRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    valid_roles = {"viewer", "member"}
+    if request.role not in valid_roles:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(valid_roles)}")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _assert_owner(cursor, board_id, current_user["sub"])
+    cursor.execute(
+        "UPDATE board_members SET role = ? WHERE board_id = ? AND user_id = ?",
+        (request.role, board_id, user_id),
+    )
+    if cursor.rowcount == 0:
+        conn.close()
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Member not found")
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "role": request.role}
 
 
 @router.delete("/{board_id}/members/{user_id}", status_code=204)

@@ -40,7 +40,19 @@ def init_db():
             title TEXT NOT NULL,
             description TEXT DEFAULT '',
             color TEXT DEFAULT NULL,
+            archived INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS board_favorites (
+            board_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (board_id, user_id),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
@@ -83,9 +95,12 @@ def init_db():
             estimated_hours REAL,
             actual_hours REAL,
             sprint_id TEXT,
+            parent_card_id TEXT,
+            color TEXT DEFAULT NULL,
             FOREIGN KEY(column_id) REFERENCES columns(id) ON DELETE CASCADE,
             FOREIGN KEY(assignee_id) REFERENCES users(id) ON DELETE SET NULL,
-            FOREIGN KEY(sprint_id) REFERENCES sprints(id) ON DELETE SET NULL
+            FOREIGN KEY(sprint_id) REFERENCES sprints(id) ON DELETE SET NULL,
+            FOREIGN KEY(parent_card_id) REFERENCES cards(id) ON DELETE SET NULL
         )
     """)
 
@@ -223,6 +238,20 @@ def _migrate(conn):
         cursor.execute("ALTER TABLE boards ADD COLUMN description TEXT DEFAULT ''")
     if "color" not in board_cols:
         cursor.execute("ALTER TABLE boards ADD COLUMN color TEXT DEFAULT NULL")
+    if "archived" not in board_cols:
+        cursor.execute("ALTER TABLE boards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+
+    # board_favorites table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS board_favorites (
+            board_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (board_id, user_id),
+            FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
 
     # columns
     cursor.execute("PRAGMA table_info(columns)")
@@ -249,6 +278,10 @@ def _migrate(conn):
         cursor.execute("ALTER TABLE cards ADD COLUMN actual_hours REAL")
     if "sprint_id" not in card_cols:
         cursor.execute("ALTER TABLE cards ADD COLUMN sprint_id TEXT REFERENCES sprints(id) ON DELETE SET NULL")
+    if "parent_card_id" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN parent_card_id TEXT REFERENCES cards(id) ON DELETE SET NULL")
+    if "color" not in card_cols:
+        cursor.execute("ALTER TABLE cards ADD COLUMN color TEXT DEFAULT NULL")
 
     # sprints table
     cursor.execute("""
@@ -320,6 +353,18 @@ def _migrate(conn):
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(board_id) REFERENCES boards(id) ON DELETE CASCADE,
             FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE SET NULL
+        )
+    """)
+
+    # card_links table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS card_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(card_id) REFERENCES cards(id) ON DELETE CASCADE
         )
     """)
 

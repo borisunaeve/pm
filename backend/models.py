@@ -18,6 +18,7 @@ class Comment(BaseModel):
     card_id: str
     user_id: str
     username: str
+    display_name: Optional[str] = ""
     content: str
     created_at: str
 
@@ -44,6 +45,9 @@ class CardModel(BaseModel):
     actual_hours: Optional[float] = None
     sprint_id: Optional[str] = None
     sprint_title: Optional[str] = None
+    parent_card_id: Optional[str] = None
+    subtask_count: Optional[int] = 0
+    color: Optional[str] = None
 
 
 class ColumnModel(BaseModel):
@@ -70,6 +74,8 @@ class UpdateCardRequest(BaseModel):
     estimated_hours: Optional[float] = None
     actual_hours: Optional[float] = None
     sprint_id: Optional[str] = None
+    parent_card_id: Optional[str] = None
+    color: Optional[str] = None
 
 
 class CreateCardRequest(BaseModel):
@@ -83,6 +89,16 @@ class CreateCardRequest(BaseModel):
     estimated_hours: Optional[float] = None
     actual_hours: Optional[float] = None
     sprint_id: Optional[str] = None
+    parent_card_id: Optional[str] = None
+    color: Optional[str] = None
+
+
+class CreateSubtaskRequest(BaseModel):
+    title: str
+    details: Optional[str] = ""
+    priority: Optional[str] = "medium"
+    due_date: Optional[str] = None
+    assignee_id: Optional[str] = None
 
 
 # ── Sprints ────────────────────────────────────────────────────────────────────
@@ -210,6 +226,8 @@ class BoardSummary(BaseModel):
     created_at: Optional[str] = None
     card_count: Optional[int] = 0
     member_count: Optional[int] = 0
+    is_favorite: bool = False
+    archived: bool = False
 
 
 class CreateBoardRequest(BaseModel):
@@ -374,3 +392,22 @@ class BoardMember(BaseModel):
     username: str
     role: str
     added_at: str
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    role: str  # "viewer" | "member"
+
+
+# ── Card Links ─────────────────────────────────────────────────────────────────
+
+class CardLink(BaseModel):
+    id: int
+    card_id: str
+    title: str
+    url: str
+    created_at: str
+
+
+class CreateLinkRequest(BaseModel):
+    title: Optional[str] = ""
+    url: str
